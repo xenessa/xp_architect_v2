@@ -1,45 +1,14 @@
 import type { Project } from "@db/schema";
 import type { CompiledDataset } from "../compiler";
+import type { DeliverableTemplate, TemplateSection } from "../templates";
 
 /**
- * Team Agent prompts (build doc §6.5): generates the role-specific
- * deliverables from the Compiler's unified dataset.
- *   SA profile → Solution Design Document
- *   PM profile → Project Documentation
- * With the bundle, each deliverable also carries cross-role notes — the
- * cross-referencing layer that keeps the two documents consistent.
+ * Team Agent prompts (§6.5, v6): per-section generation against a template
+ * skeleton. A shared system prompt carries role + document context; each
+ * section gets its own user message with guidance + the compiled dataset.
  */
 
-export const PROFILE_SPECS = {
-  SA: {
-    docName: "Solution Design Document",
-    guidance: `Write for the Solution Architect who owns the technical design. Sections:
-1. Executive Overview — the engagement in technical terms
-2. Current State Understanding — systems, processes, constraints discovered
-3. Requirements Summary — functional and non-functional, grounded in stakeholder material
-4. Proposed Solution Architecture — components, integrations, data flows
-5. Integration & Data Considerations — specific risks and dependencies
-6. Out-of-Scope Register — what was explicitly excluded and why
-7. Open Questions & Assumptions — what still needs validation
-8. Risks & Mitigations — technical risks from the compiled data`,
-  },
-  PM: {
-    docName: "Project Documentation",
-    guidance: `Write for the Project Manager who owns delivery. Sections:
-1. Executive Summary — the engagement in delivery terms
-2. Project Objectives & Success Criteria — as stated by stakeholders
-3. Scope Statement — in scope / out of scope, grounded in the compiled register
-4. Stakeholder Map — who said what, their concerns, their influence
-5. Milestones & Phasing — proposed delivery structure
-6. Dependencies & Constraints — external and internal
-7. Risk Register — delivery risks from the compiled data, with owners and mitigations
-8. Open Items & Next Steps`,
-  },
-} as const;
-
-export type DeliverableProfile = keyof typeof PROFILE_SPECS;
-
-function datasetBlock(d: CompiledDataset): string {
+export function datasetBlock(d: CompiledDataset): string {
   return `COMPILED DATASET (readiness ${d.readiness_score}/100):
 Executive summary: ${d.executive_summary}
 
@@ -59,40 +28,39 @@ Coverage gaps:
 ${d.coverage_gaps.map((g) => `- ${g.area} [${g.severity}]: ${g.detail}`).join("\n") || "(none)"}`;
 }
 
-export function deliverablePrompt(
+export function projectFrame(project: Project): string {
+  return [
+    `Project: ${project.name}`,
+    project.clientName ? `Client: ${project.clientName}` : null,
+    `Scope boundary:\n${project.scopeText}`,
+    project.constraintsText ? `Constraints:\n${project.constraintsText}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function sectionSystemPrompt(template: DeliverableTemplate): string {
+  return `You are the Team Agent for XP Architect, writing the ${template.name} for an enterprise software implementation engagement, one section at a time. Professional consulting tone. Write only the requested section's markdown body — no section heading, no preamble, no JSON.`;
+}
+
+export function sectionUserPrompt(
   project: Project,
-  profile: DeliverableProfile,
+  template: DeliverableTemplate,
+  section: TemplateSection,
   dataset: CompiledDataset,
-  otherDocSummary: string | null,
   feedback?: string,
 ): string {
-  const spec = PROFILE_SPECS[profile];
-  return `You are the Team Agent for XP Architect, producing the ${spec.docName} for an enterprise software engagement.
-
-Project: ${project.name}${project.clientName ? ` (client: ${project.clientName})` : ""}
-Scope boundary:
-${project.scopeText}
-${project.constraintsText ? `Constraints:\n${project.constraintsText}` : ""}
+  return `${projectFrame(project)}
 
 ${datasetBlock(dataset)}
 
-${spec.guidance}
+You are writing this section of the ${template.name}:
+Section: "${section.heading}"
+Guidance: ${section.guidance}
 
-${
-  otherDocSummary
-    ? `CROSS-REFERENCING: the companion ${profile === "SA" ? "PM Project Documentation" : "SA Solution Design Document"} already exists. Its synopsis:\n${otherDocSummary}\nAdd cross-role notes: where this document depends on, contradicts, or hands off to the companion document.`
-    : "No companion document exists yet — set cross_role_notes_md to null."
-}
-
-${
-  feedback
-    ? `REVISION REQUEST: the project lead reviewed the previous version and requests these changes:\n"${feedback}"\nApply them faithfully while keeping the document's overall structure.\n\n`
-    : ""
-}Rules:
+${feedback ? `REVISION REQUEST from the project lead (apply faithfully): "${feedback}"\n` : ""}
+Rules:
 - Every claim must trace to the compiled dataset; mark inference explicitly as "(inference)".
-- Professional consulting tone; markdown body; no preamble outside the JSON.
-- Body length: 600–1000 words of markdown.
-
-Respond with STRICT JSON only:
-{"title": "...", "body_md": "...markdown...", "cross_role_notes_md": "...markdown or null..."}`;
+- 80–200 words for this section's body; markdown lists welcome.
+- Reference stakeholders by name where their input informs the point.`;
 }

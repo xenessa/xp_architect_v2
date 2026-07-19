@@ -7,7 +7,16 @@ import { getDb } from "./queries/connection";
 import { assertProjectOwner } from "./queries/projects";
 import { getEntitlement } from "./billing-router";
 import { generateDeliverable } from "./agents/team";
+import { TEMPLATES, templateById, type TemplateId } from "./agents/templates";
 import { deliverables, compiledReports, projects } from "@db/schema";
+
+const TEMPLATE_IDS = [
+  "sdd",
+  "pm_charter",
+  "pm_plan",
+  "pm_risk_register",
+  "pm_stakeholder_map",
+] as const;
 
 /**
  * Team Agent API (§6.5, §10.4): deliverable generation (gated by paid
@@ -42,20 +51,27 @@ export const teamRouter = createRouter({
         entitlement,
         compiledReportVersion: report?.version ?? null,
         readinessScore,
+        templates: TEMPLATES.map((t) => ({
+          id: t.id,
+          profile: t.profile,
+          name: t.name,
+          description: t.description,
+        })),
       };
     }),
 
   /** Generate (or regenerate) a deliverable. Requires entitlement + compiler run. */
   generate: authedQuery
-    .input(z.object({ projectId: z.number(), profile: z.enum(["SA", "PM"]) }))
+    .input(z.object({ projectId: z.number(), templateId: z.enum(TEMPLATE_IDS) }))
     .mutation(async ({ ctx, input }) => {
       await assertProjectOwner(input.projectId, ctx.user.id);
+      const template = templateById(input.templateId);
       const entitlement = await getEntitlement(input.projectId);
-      const allowed = input.profile === "SA" ? entitlement.sa : entitlement.pm;
+      const allowed = template.profile === "SA" ? entitlement.sa : entitlement.pm;
       if (!allowed) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: `The ${input.profile} profile isn't unlocked for this project — purchase it first.`,
+          message: `The ${template.profile} profile isn't unlocked for this project — purchase it first.`,
         });
       }
 
@@ -75,7 +91,7 @@ export const teamRouter = createRouter({
         });
       }
 
-      return generateDeliverable(input.projectId, input.profile);
+      return generateDeliverable(input.projectId, input.templateId);
     }),
 
   /** Advance review status: draft → in_review → approved. */
@@ -122,7 +138,7 @@ export const teamRouter = createRouter({
           message: `The ${doc.profile} profile isn't unlocked for this project.`,
         });
       }
-      return generateDeliverable(doc.projectId, doc.profile, input.feedback);
+      return generateDeliverable(doc.projectId, doc.templateId as TemplateId, input.feedback);
     }),
 
   /** Export a deliverable as a formatted .docx download (Q3). */

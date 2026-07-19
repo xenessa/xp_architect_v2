@@ -539,8 +539,8 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   const d = data.data;
   const b = billing.data;
   const entitled = b.entitlement.sa || b.entitlement.pm;
-  const latestFor = (profile: "SA" | "PM") =>
-    d.deliverables.find((doc) => doc.profile === profile) ?? null;
+  const latestFor = (templateId: string) =>
+    d.deliverables.find((doc) => doc.templateId === templateId) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -608,19 +608,18 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
         </div>
       )}
 
-      {(["SA", "PM"] as const).map((profile) => {
-        const unlocked = profile === "SA" ? b.entitlement.sa : b.entitlement.pm;
-        const doc = latestFor(profile);
-        const title =
-          profile === "SA" ? "Solution Design Document" : "Project Documentation";
+      {d.templates.map((tpl) => {
+        const unlocked = tpl.profile === "SA" ? b.entitlement.sa : b.entitlement.pm;
+        const doc = latestFor(tpl.id);
+        const title = tpl.name;
         const flow = doc ? STATUS_FLOW[doc.status] : null;
         return (
-          <Card key={profile}>
+          <Card key={tpl.id}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 <CardTitle className="text-base">
-                  {title} <span className="text-muted-foreground">({profile})</span>
+                  {title} <span className="text-muted-foreground">({tpl.profile})</span>
                 </CardTitle>
                 {doc && (
                   <Badge variant={doc.status === "approved" ? "default" : "secondary"}>
@@ -656,7 +655,7 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
                     disabled={
                       generate.isPending || d.compiledReportVersion === null
                     }
-                    onClick={() => generate.mutate({ projectId, profile })}
+                    onClick={() => generate.mutate({ projectId, templateId: tpl.id })}
                     title={
                       d.compiledReportVersion === null
                         ? "Run the Compiler first (Compilation tab)"
@@ -675,10 +674,11 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">{tpl.description}</p>
               {!unlocked && (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Lock className="h-4 w-4" />
-                  Locked — purchase the {profile} profile (or the bundle) to unlock
+                  Locked — purchase the {tpl.profile} profile (or the bundle) to unlock
                   generation.
                 </p>
               )}

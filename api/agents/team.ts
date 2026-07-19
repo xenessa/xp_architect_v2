@@ -1,30 +1,26 @@
-import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../queries/connection";
 import { llm, gatewayMode } from "./llm";
-import { deliverablePrompt, PROFILE_SPECS, type DeliverableProfile } from "./prompts/team";
+import { sectionSystemPrompt, sectionUserPrompt } from "./prompts/team";
+import { templateById, type DeliverableTemplate, type TemplateId } from "./templates";
 import { compiledDatasetSchema, type CompiledDataset } from "./compiler";
-import { projects, compiledReports, deliverables } from "@db/schema";
+import { projects, compiledReports, deliverables, type Project } from "@db/schema";
 
 /**
- * Team Agent (build doc §6.5): generates the role-specific deliverables
- * from the latest compiled dataset. SA → Solution Design Document,
- * PM → Project Documentation; the bundle adds cross-role notes.
+ * Team Agent (§6.5, v6): generates deliverables from templates — a fixed
+ * section skeleton filled per section. Live mode writes each section with
+ * the model; dev mode fills deterministically from the compiled dataset.
  */
-
-const deliverableSchema = z.object({
-  title: z.string().min(1),
-  body_md: z.string().min(1),
-  cross_role_notes_md: z.string().nullable(),
-});
 
 export async function generateDeliverable(
   projectId: number,
-  profile: DeliverableProfile,
+  templateId: TemplateId,
   feedback?: string,
 ) {
   const db = getDb();
+  const template = templateById(templateId);
+
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
 
@@ -42,53 +38,64 @@ export async function generateDeliverable(
   }
   const dataset = compiledDatasetSchema.parse(report.datasetJson);
 
-  const otherProfile: DeliverableProfile = profile === "SA" ? "PM" : "SA";
+  // Cross-referencing: synopsis of the companion profile's latest document.
+  const otherProfile = template.profile === "SA" ? "PM" : "SA";
   const [otherDoc] = await db
     .select()
     .from(deliverables)
     .where(and(eq(deliverables.projectId, projectId), eq(deliverables.profile, otherProfile)))
-    .orderBy(desc(deliverables.version))
+    .orderBy(desc(deliverables.updatedAt))
     .limit(1);
-  const otherSynopsis = otherDoc?.contentMd ? otherDoc.contentMd.slice(0, 500) : null;
+  const hasCompanion = Boolean(otherDoc?.contentMd);
 
-  let result: z.infer<typeof deliverableSchema>;
+  let sections: { heading: string; body: string }[];
 
   if (gatewayMode(project) === "live") {
-    result = await llm.completeJson(
-      {
-        agent: "team",
-        purpose: `deliverable_${profile.toLowerCase()}`,
-        projectId,
-        temperature: 0.4,
-        maxTokens: 6000,
-        messages: [
-          {
-            role: "user",
-            content: deliverablePrompt(project, profile, dataset, otherSynopsis, feedback),
-          },
-        ],
-      },
-      deliverableSchema,
-      project,
-    );
+    sections = [];
+    for (const section of template.sections) {
+      const result = await llm.complete(
+        {
+          agent: "team",
+          purpose: `${templateId}:${section.heading.slice(0, 32)}`,
+          projectId,
+          temperature: 0.4,
+          maxTokens: 1200,
+          messages: [
+            { role: "system", content: sectionSystemPrompt(template) },
+            { role: "user", content: sectionUserPrompt(project, template, section, dataset, feedback) },
+          ],
+        },
+        project,
+      );
+      sections.push({ heading: section.heading, body: result.text.trim() });
+    }
   } else {
-    result = devDeliverable(project, profile, dataset, otherSynopsis, feedback);
+    sections = devSections(template, project, dataset, feedback);
     await llm.logDevCall(
-      { agent: "team", purpose: `deliverable_${profile.toLowerCase()}`, projectId, messages: [] },
-      result.body_md.length,
+      { agent: "team", purpose: `deliverable_${templateId}`, projectId, messages: [] },
+      sections.reduce((n, s) => n + s.body.length, 0),
     );
   }
+
+  const title = `${template.name} — ${project.name}${project.clientName ? ` for ${project.clientName}` : ""}`;
+  const contentMd =
+    `# ${title}\n\n` + sections.map((s) => `## ${s.heading}\n\n${s.body}`).join("\n\n");
+
+  const crossRoleNotesMd = hasCompanion
+    ? `## Cross-Role Notes\nThe companion ${otherProfile} deliverable set exists for this project. Align shared sections (scope register, risks, open questions) whenever either document regenerates; divergences are flagged here after live-model comparison.`
+    : null;
 
   const [prev] = await db
     .select()
     .from(deliverables)
-    .where(and(eq(deliverables.projectId, projectId), eq(deliverables.profile, profile)))
+    .where(and(eq(deliverables.projectId, projectId), eq(deliverables.templateId, templateId)))
     .orderBy(desc(deliverables.version))
     .limit(1);
   const version = (prev?.version ?? 0) + 1;
 
-  // Feedback audit trail (§6.5): carry the prior log, append this round.
-  const priorLog = Array.isArray(prev?.feedbackLogJson) ? (prev.feedbackLogJson as unknown[]) : [];
+  const priorLog = Array.isArray(prev?.feedbackLogJson)
+    ? (prev.feedbackLogJson as unknown[])
+    : [];
   const feedbackLog = feedback
     ? [...priorLog, { version, feedback, at: new Date().toISOString() }]
     : priorLog;
@@ -97,86 +104,105 @@ export async function generateDeliverable(
     .insert(deliverables)
     .values({
       projectId,
-      profile,
+      profile: template.profile,
+      templateId,
       version,
       status: "draft",
-      contentMd: `# ${result.title}\n\n${result.body_md}`,
-      crossRoleNotesMd: result.cross_role_notes_md,
+      contentMd,
+      crossRoleNotesMd,
       feedbackLogJson: feedbackLog,
     })
     .$returningId();
 
-  return { id: inserted.id, profile, version };
+  return { id: inserted.id, templateId, profile: template.profile, version };
 }
 
-/** Dev-mode deliverable: deterministic, honest markdown built from the dataset. */
-function devDeliverable(
-  project: { name: string; clientName: string | null; scopeText: string; constraintsText: string | null },
-  profile: DeliverableProfile,
+/* ------------------------------------------------------------------ */
+/* Dev-mode deterministic fills — distinct content per template.       */
+/* ------------------------------------------------------------------ */
+
+function fragments(d: CompiledDataset) {
+  const coverageList =
+    d.stakeholder_coverage
+      .map((s) => `- ${s.name}, ${s.role_title} — ${s.phases_covered}/4 phases complete`)
+      .join("\n") || "- No stakeholders have completed discovery.";
+  const oosList =
+    d.out_of_scope_ranked
+      .map((o) => `- **${o.item}** — recommendation: ${o.recommendation} (raised by ${o.raised_by.join(", ")})`)
+      .join("\n") || "- No out-of-scope items were raised.";
+  const gapList =
+    d.coverage_gaps
+      .map((g) => `- **${g.area}** [${g.severity}] — ${g.detail}`)
+      .join("\n") || "- No coverage gaps detected.";
+  const patternList =
+    d.patterns
+      .map((p) => `- **${p.theme}** (${p.supporting_stakeholders.join(", ")}): ${p.detail}`)
+      .join("\n") || "- No cross-stakeholder patterns detected.";
+  const contradictionList =
+    d.contradictions
+      .map(
+        (c) =>
+          `- **${c.topic}** [${c.severity}] — ${c.positions.map((p) => `${p.stakeholder}: "${p.claim}"`).join(" vs. ")}`,
+      )
+      .join("\n") || "- No contradictions between stakeholder positions detected.";
+  return { coverageList, oosList, gapList, patternList, contradictionList };
+}
+
+const LIVE_NOTE =
+  "(inference) Full narrative synthesis for this section runs when a live model endpoint is configured.";
+
+function devSections(
+  template: DeliverableTemplate,
+  project: Project,
   d: CompiledDataset,
-  otherSynopsis: string | null,
   feedback?: string,
-): z.infer<typeof deliverableSchema> {
-  const spec = PROFILE_SPECS[profile];
-  const client = project.clientName ? ` for ${project.clientName}` : "";
-
-  const oosSection = d.out_of_scope_ranked.length
-    ? d.out_of_scope_ranked
-        .map(
-          (o) =>
-            `- **${o.item}** — recommendation: ${o.recommendation} (raised by ${o.raised_by.join(", ")})`,
-        )
-        .join("\n")
-    : "- No out-of-scope items were raised during discovery.";
-
-  const gapSection = d.coverage_gaps.length
-    ? d.coverage_gaps.map((g) => `- **${g.area}** [${g.severity}] — ${g.detail}`).join("\n")
-    : "- No coverage gaps detected.";
-
-  const patternSection = d.patterns.length
-    ? d.patterns
-        .map((p) => `- **${p.theme}** (${p.supporting_stakeholders.join(", ")}): ${p.detail}`)
-        .join("\n")
-    : "- No cross-stakeholder patterns detected.";
-
-  const coverageList = d.stakeholder_coverage
-    .map((s) => `- ${s.name}, ${s.role_title} — ${s.phases_covered}/4 phases complete`)
-    .join("\n");
-
-  const body =
-    profile === "SA"
-      ? [
-          `## 1. Executive Overview\n${d.executive_summary}`,
-          `## 2. Current State Understanding\nDiscovery covered ${d.stakeholder_coverage.length} stakeholder(s):\n${coverageList}\n\nScope boundary as defined:\n> ${project.scopeText}`,
-          `## 3. Requirements Summary\nSignals recurring across stakeholders:\n${patternSection}`,
-          `## 4. Proposed Solution Architecture\n(inference) Detailed architecture requires a live model endpoint; this section will synthesize components, integrations, and data flows from the requirements above once generation runs against a live model.`,
-          `## 5. Integration & Data Considerations\nCoverage gaps requiring validation before design sign-off:\n${gapSection}`,
-          `## 6. Out-of-Scope Register\n${oosSection}`,
-          `## 7. Open Questions & Assumptions\n${d.contradictions.length ? d.contradictions.map((c) => `- Unresolved position on **${c.topic}** (${c.severity})`).join("\n") : "- No contradictions between stakeholder positions detected."}`,
-          `## 8. Risks & Mitigations\n${gapSection}`,
-        ].join("\n\n")
-      : [
-          `## 1. Executive Summary\n${d.executive_summary}`,
-          `## 2. Project Objectives & Success Criteria\nDerived from stakeholder-approved discovery summaries across ${d.stakeholder_coverage.length} stakeholder(s). Dataset readiness: ${d.readiness_score}/100.`,
-          `## 3. Scope Statement\nIn scope:\n> ${project.scopeText}\n\nOut of scope:\n${oosSection}`,
-          `## 4. Stakeholder Map\n${coverageList}`,
-          `## 5. Milestones & Phasing\n(inference) Phasing detail is synthesized when generation runs against a live model endpoint; stakeholder availability windows captured during discovery feed the plan.`,
-          `## 6. Dependencies & Constraints\n${project.constraintsText ? `> ${project.constraintsText}` : "No formal constraints recorded."}\n\nOpen dependencies:\n${gapSection}`,
-          `## 7. Risk Register\n${d.contradictions.length ? d.contradictions.map((c) => `- **${c.topic}** [${c.severity}] — positions: ${c.positions.map((p) => `${p.stakeholder}: "${p.claim}"`).join(" vs. ")}`).join("\n") : "- No contradictions logged."}\n${gapSection}`,
-          `## 8. Open Items & Next Steps\n${gapSection}`,
-        ].join("\n\n");
-
-  const cross = otherSynopsis
-    ? `## Cross-Role Notes\nThe companion ${profile === "SA" ? "PM Project Documentation" : "SA Solution Design Document"} exists. Align shared sections (scope register, risks, open questions) at each regeneration; divergences are flagged here after live-model comparison.`
-    : null;
-
-  const bodyWithFeedback = feedback
-    ? `${body}\n\n## Revision Notes\nThis version was regenerated in response to lead feedback: "${feedback}". The feedback is logged in the audit trail; full narrative synthesis of revisions runs when a live model endpoint is configured.`
-    : body;
-
-  return {
-    title: `${spec.docName} — ${project.name}${client}`,
-    body_md: bodyWithFeedback,
-    cross_role_notes_md: cross,
+): { heading: string; body: string }[] {
+  const f = fragments(d);
+  const bodies: Record<TemplateId, string[]> = {
+    sdd: [
+      `${d.executive_summary}\n\nDataset readiness: ${d.readiness_score}/100.`,
+      `Discovery covered ${d.stakeholder_coverage.length} stakeholder(s):\n${f.coverageList}\n\nScope boundary as defined:\n> ${project.scopeText}`,
+      `Signals recurring across stakeholders:\n${f.patternList}`,
+      `${LIVE_NOTE} The architecture section will synthesize components, integrations, and data flows from the requirements above.`,
+      `Items requiring validation before design sign-off:\n${f.gapList}`,
+      f.oosList,
+      `Unresolved positions to settle:\n${f.contradictionList}`,
+      `Risks surfaced during discovery:\n${f.gapList}`,
+    ],
+    pm_charter: [
+      `${d.executive_summary}`,
+      `Objectives as consolidated from stakeholder input:\n${f.patternList}\n\nSuccess criteria to be confirmed against these objectives at kickoff.`,
+      `In scope:\n> ${project.scopeText}\n\nOut of scope:\n${f.oosList}`,
+      `Stakeholders of record:\n${f.coverageList}`,
+      `${LIVE_NOTE} Milestone structure will be derived from constraints and stakeholder availability captured in discovery.`,
+    ],
+    pm_plan: [
+      `${LIVE_NOTE} Delivery approach will be shaped by the constraint set and stakeholder availability.`,
+      `Proposed phasing builds on completed discovery across ${d.stakeholder_coverage.length} stakeholder(s) (dataset readiness ${d.readiness_score}/100).`,
+      `Open dependencies gating progress:\n${f.gapList}`,
+      project.constraintsText
+        ? `> ${project.constraintsText}`
+        : "No formal constraints recorded for this engagement.",
+      `${LIVE_NOTE} Cadence and governance recommendations will follow the stakeholder map.`,
+    ],
+    pm_risk_register: [
+      `Ranked by severity, drawn from contradictions and coverage gaps:\n${f.contradictionList}\n${f.gapList}`,
+      `${LIVE_NOTE} Mitigations and suggested owners will be drafted per risk.`,
+      `Signals worth monitoring:\n${f.patternList}`,
+    ],
+    pm_stakeholder_map: [
+      `Register of engaged stakeholders:\n${f.coverageList}`,
+      `Alignment:\n${f.patternList}\n\nDivergence:\n${f.contradictionList}`,
+      `${LIVE_NOTE} Per-stakeholder channel and cadence recommendations will be drafted from each person's stated concerns.`,
+    ],
   };
+
+  const revision = feedback
+    ? `\n\n*Revision note: regenerated in response to lead feedback — "${feedback}".*`
+    : "";
+
+  return template.sections.map((section, i) => ({
+    heading: section.heading,
+    body: (bodies[template.id][i] ?? LIVE_NOTE) + (i === 0 ? revision : ""),
+  }));
 }

@@ -247,6 +247,7 @@ export const deliverables = mysqlTable("deliverables", {
     .notNull()
     .references(() => projects.id),
   profile: mysqlEnum("profile", ["SA", "PM"]).notNull(),
+  templateId: varchar("template_id", { length: 64 }).notNull().default("sdd"), // §6.5 template (SA: sdd; PM: pm_charter/pm_plan/pm_risk_register/pm_stakeholder_map)
   version: int("version").default(1).notNull(),
   status: mysqlEnum("status", ["draft", "in_review", "approved"])
     .default("draft")
