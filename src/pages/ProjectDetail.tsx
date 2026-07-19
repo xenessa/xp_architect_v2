@@ -480,6 +480,7 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   const purchaseState = searchParams.get("purchase");
   const data = trpc.team.getDeliverables.useQuery({ projectId });
   const billing = trpc.billing.getBilling.useQuery({ projectId });
+  const llm = trpc.projects.llmStatus.useQuery({ id: projectId });
   const invalidate = () => {
     utils.team.getDeliverables.invalidate({ projectId });
     utils.billing.getBilling.invalidate({ projectId });
@@ -553,6 +554,18 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
         <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
           Checkout cancelled — nothing was charged.
         </p>
+      )}
+
+      {llm.data && (
+        <div>
+          {llm.data.mode === "live" ? (
+            <Badge>Live model · {llm.data.model}</Badge>
+          ) : (
+            <Badge variant="secondary">
+              Demo mode — scripted agents (no model endpoint configured)
+            </Badge>
+          )}
+        </div>
       )}
 
       {!entitled && (

@@ -43,10 +43,28 @@ interface EndpointConfig {
 }
 
 function envEndpoint(): EndpointConfig | null {
-  const baseUrl = process.env.LLM_BASE_URL;
-  const apiKey = process.env.LLM_API_KEY;
+  // Primary names (LLM_*), then common provider-style names so platform- or
+  // user-injected config is picked up without code changes.
+  const baseUrl =
+    process.env.LLM_BASE_URL ??
+    process.env.OPENAI_BASE_URL ??
+    (process.env.OPENROUTER_API_KEY ? "https://openrouter.ai/api/v1" : undefined);
+  const apiKey =
+    process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.OPENROUTER_API_KEY;
   if (!baseUrl || !apiKey) return null;
-  return { baseUrl, apiKey, model: process.env.LLM_MODEL ?? "kimi-k2" };
+  return {
+    baseUrl,
+    apiKey,
+    model: process.env.LLM_MODEL ?? process.env.OPENAI_MODEL ?? "openrouter/auto",
+  };
+}
+
+/** For the owner-only status endpoint — names only, never secrets. */
+export function envEndpointInfo(): { configured: boolean; baseUrl?: string; model?: string } {
+  const ep = envEndpoint();
+  return ep
+    ? { configured: true, baseUrl: ep.baseUrl, model: ep.model }
+    : { configured: false };
 }
 
 function byoEndpoint(project?: Project | null): EndpointConfig | null {

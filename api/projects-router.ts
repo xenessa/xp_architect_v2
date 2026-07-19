@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { assertProjectOwner, computeProjectStage, projectRollup } from "./queries/projects";
+import { gatewayMode, envEndpointInfo } from "./agents/llm";
 import {
   projects,
   projectRoleProfiles,
@@ -125,6 +126,25 @@ export const projectsRouter = createRouter({
         .where(eq(projects.id, input.id));
       return { ok: true, configured: input.endpoint !== null };
     }),
+
+  /** LLM gateway status for this project (names only — never secrets). */
+  llmStatus: authedQuery.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+    const project = await assertProjectOwner(input.id, ctx.user.id);
+    const byo = Boolean(
+      (project.llmEndpointJson as { baseUrl?: string } | null)?.baseUrl,
+    );
+    const envInfo = envEndpointInfo();
+    return {
+      mode: gatewayMode(project),
+      source: byo ? "byo" : envInfo.configured ? "env" : null,
+      model: byo
+        ? ((project.llmEndpointJson as { model?: string } | null)?.model ?? null)
+        : (envInfo.model ?? null),
+      baseUrl: byo
+        ? ((project.llmEndpointJson as { baseUrl?: string } | null)?.baseUrl ?? null)
+        : (envInfo.baseUrl ?? null),
+    };
+  }),
 
   /** Full cascade delete (§9.2 retention & deletion). */
   delete: authedQuery
