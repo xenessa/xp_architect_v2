@@ -109,40 +109,40 @@ export const billingRouter = createRouter({
         metadata: { projectId: String(input.projectId), profile: pkg.profile },
         customer_email: ctx.user.email ?? undefined,
       };
-      const productId = process.env[pkg.productEnv];
+      const priceRef = process.env[pkg.productEnv];
+      // Env may hold a price ID (price_… — reference directly) or a product ID
+      // (prod_… — attach inline price data); final fallback is fully inline.
+      const inlineItem = (): Stripe.Checkout.SessionCreateParams.LineItem => ({
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: pkg.unitAmount,
+          product_data: { name: `XP Architect — ${pkg.label}` },
+        },
+      });
+      const primaryItem = (): Stripe.Checkout.SessionCreateParams.LineItem => {
+        if (priceRef?.startsWith("price_")) return { quantity: 1, price: priceRef };
+        if (priceRef) {
+          return {
+            quantity: 1,
+            price_data: { currency: "usd", unit_amount: pkg.unitAmount, product: priceRef },
+          };
+        }
+        return inlineItem();
+      };
 
       let session: Stripe.Checkout.Session;
       try {
         session = await stripe.checkout.sessions.create({
           ...base,
-          line_items: [
-            {
-              quantity: 1,
-              price_data: productId
-                ? { currency: "usd", unit_amount: pkg.unitAmount, product: productId }
-                : {
-                    currency: "usd",
-                    unit_amount: pkg.unitAmount,
-                    product_data: { name: `XP Architect — ${pkg.label}` },
-                  },
-            },
-          ],
+          line_items: [primaryItem()],
         });
       } catch (err) {
-        if (!productId) throw err;
-        // Key may not be permitted to reference existing products — retry inline.
+        if (!priceRef) throw err;
+        // Key may not be permitted to reference existing prices/products — retry inline.
         session = await stripe.checkout.sessions.create({
           ...base,
-          line_items: [
-            {
-              quantity: 1,
-              price_data: {
-                currency: "usd",
-                unit_amount: pkg.unitAmount,
-                product_data: { name: `XP Architect — ${pkg.label}` },
-              },
-            },
-          ],
+          line_items: [inlineItem()],
         });
       }
 
