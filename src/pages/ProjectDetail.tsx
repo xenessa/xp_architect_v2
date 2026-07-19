@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   Lock,
   Mail,
@@ -183,6 +184,17 @@ function StakeholderRow({
         <Button size="sm" variant="outline" onClick={copy}>
           <Copy className="mr-1.5 h-3.5 w-3.5" />
           {copied ? "Copied!" : "Copy link"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          title="Open the stakeholder invite in this browser tab"
+          onClick={() => {
+            window.location.href = inviteUrl;
+          }}
+        >
+          <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+          Open invite
         </Button>
         <Button
           size="sm"
