@@ -105,39 +105,54 @@ async function completeLive(
   endpoint: EndpointConfig,
 ): Promise<LlmResult> {
   const started = Date.now();
-  const resp = await fetch(`${endpoint.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${endpoint.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: endpoint.model,
-      messages: call.messages,
-      temperature: call.temperature ?? 0.7,
-      max_tokens: call.maxTokens ?? 1500,
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  // Reasoning models (e.g. moonshotai/kimi-k3) burn tokens on hidden reasoning
+  // before producing content — enforce headroom, and retry once with double
+  // budget if the response comes back with empty content.
+  let budget = Math.max(call.maxTokens ?? 1500, 2500);
 
-  if (!resp.ok) {
-    throw new Error(`LLM endpoint error (${resp.status}): ${await resp.text()}`);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resp = await fetch(`${endpoint.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${endpoint.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: endpoint.model,
+        messages: call.messages,
+        temperature: call.temperature ?? 0.7,
+        max_tokens: budget,
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`LLM endpoint error (${resp.status}): ${await resp.text()}`);
+    }
+
+    const data = (await resp.json()) as {
+      choices?: { message?: { content?: string | null } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    const text = data.choices?.[0]?.message?.content ?? "";
+
+    if (text.trim()) {
+      const result = {
+        text,
+        model: endpoint.model,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        latencyMs: Date.now() - started,
+      };
+      await logCall(call, result);
+      return { ...result, devMode: false };
+    }
+
+    console.warn(`[llm] empty content (attempt ${attempt + 1}, budget ${budget}) — retrying with more headroom`);
+    budget *= 2;
   }
 
-  const data = (await resp.json()) as {
-    choices?: { message?: { content?: string } }[];
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
-
-  const result = {
-    text: data.choices?.[0]?.message?.content ?? "",
-    model: endpoint.model,
-    inputTokens: data.usage?.prompt_tokens ?? 0,
-    outputTokens: data.usage?.completion_tokens ?? 0,
-    latencyMs: Date.now() - started,
-  };
-  await logCall(call, result);
-  return { ...result, devMode: false };
+  throw new Error("LLM returned empty content after retry");
 }
 
 export const llm = {
