@@ -149,13 +149,25 @@ async function nextAgentMessage(
   const db = getDb();
 
   if (ctx.stakeholderMessage) {
-    await db.insert(conversationMessages).values({
-      sessionId: session.id,
-      stage: "discovery",
-      phase,
-      role: "stakeholder",
-      content: ctx.stakeholderMessage,
-    });
+    // Idempotent retry: if the previous attempt already persisted this exact
+    // message (e.g. the agent reply then timed out), don't duplicate it —
+    // fall through and regenerate the agent's response.
+    const existing = await loadDiscoveryMessages(session.id);
+    const last = existing[existing.length - 1];
+    const isRetry =
+      last?.stage === "discovery" &&
+      last.phase === phase &&
+      last.role === "stakeholder" &&
+      last.content === ctx.stakeholderMessage;
+    if (!isRetry) {
+      await db.insert(conversationMessages).values({
+        sessionId: session.id,
+        stage: "discovery",
+        phase,
+        role: "stakeholder",
+        content: ctx.stakeholderMessage,
+      });
+    }
   }
 
   const allMessages = await loadDiscoveryMessages(session.id);
@@ -240,6 +252,7 @@ async function nextAgentMessage(
         maxTokens: 900,
         projectId: project.id,
         sessionId: session.id,
+        interactive: true,
       },
       envelopeSchema,
       project,
@@ -357,6 +370,7 @@ export async function approvePhaseSummary(ctx: Ctx, feedback?: string) {
           maxTokens: 700,
           projectId: project.id,
           sessionId: session.id,
+          interactive: true,
         },
         z.object({ summary: z.string().min(1) }),
         project,

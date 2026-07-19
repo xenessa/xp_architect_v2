@@ -68,6 +68,7 @@ async function callForEnvelope(
       maxTokens: 700,
       projectId: ctx.projectId,
       sessionId: ctx.sessionId,
+      interactive: true,
     },
     project,
   );
@@ -101,6 +102,7 @@ async function callForEnvelope(
       maxTokens: 700,
       projectId: ctx.projectId,
       sessionId: ctx.sessionId,
+      interactive: true,
     },
     project,
   );
@@ -211,12 +213,20 @@ export async function assessmentReply(params: {
   const { session, stakeholder, project, message } = params;
   const db = getDb();
 
-  await db.insert(conversationMessages).values({
-    sessionId: session.id,
-    stage: "assessment",
-    role: "stakeholder",
-    content: message,
-  });
+  // Idempotent retry: if the previous attempt already persisted this exact
+  // stakeholder message (e.g. the agent reply then timed out), don't duplicate
+  // it — just regenerate the agent's response.
+  const prior = await loadAssessmentMessages(session.id);
+  const last = prior[prior.length - 1];
+  const isRetry = last?.role === "stakeholder" && last.content === message;
+  if (!isRetry) {
+    await db.insert(conversationMessages).values({
+      sessionId: session.id,
+      stage: "assessment",
+      role: "stakeholder",
+      content: message,
+    });
+  }
 
   const history = await loadAssessmentMessages(session.id);
   const exchanges = stakeholderExchangeCount(history);

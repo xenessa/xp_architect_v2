@@ -51,24 +51,28 @@ export async function generateDeliverable(
   let sections: { heading: string; body: string }[];
 
   if (gatewayMode(project) === "live") {
-    sections = [];
-    for (const section of template.sections) {
-      const result = await llm.complete(
-        {
-          agent: "team",
-          purpose: `${templateId}:${section.heading.slice(0, 32)}`,
-          projectId,
-          temperature: 0.4,
-          maxTokens: 1200,
-          messages: [
-            { role: "system", content: sectionSystemPrompt(template) },
-            { role: "user", content: sectionUserPrompt(project, template, section, dataset, feedback) },
-          ],
-        },
-        project,
-      );
-      sections.push({ heading: section.heading, body: result.text.trim() });
-    }
+    // Sections are independent (each draws only on the compiled dataset), so
+    // generate them concurrently — sequential K3 calls would exceed the
+    // hosting platform's request timeout for 5–8-section templates.
+    sections = await Promise.all(
+      template.sections.map(async (section) => {
+        const result = await llm.complete(
+          {
+            agent: "team",
+            purpose: `${templateId}:${section.heading.slice(0, 32)}`,
+            projectId,
+            temperature: 0.4,
+            maxTokens: 1200,
+            messages: [
+              { role: "system", content: sectionSystemPrompt(template) },
+              { role: "user", content: sectionUserPrompt(project, template, section, dataset, feedback) },
+            ],
+          },
+          project,
+        );
+        return { heading: section.heading, body: result.text.trim() };
+      }),
+    );
   } else {
     sections = devSections(template, project, dataset, feedback);
     await llm.logDevCall(

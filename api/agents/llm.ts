@@ -25,6 +25,12 @@ export interface LlmCall {
   temperature?: number;
   projectId?: number;
   sessionId?: number;
+  /**
+   * User-facing conversational turn: fail fast (well under the hosting
+   * platform's edge timeout, so the client gets a real JSON error instead of
+   * an HTML gateway page) and skip the empty-content retry.
+   */
+  interactive?: boolean;
 }
 
 export interface LlmResult {
@@ -105,29 +111,47 @@ async function completeLive(
   endpoint: EndpointConfig,
 ): Promise<LlmResult> {
   const started = Date.now();
+  const interactive = call.interactive ?? false;
+  // Interactive turns must fail before the hosting platform's edge timeout
+  // (observed ≥75s) so the client receives a parseable JSON error; batch work
+  // (deliverables) gets more headroom.
+  const timeoutMs = interactive ? 50_000 : 100_000;
   // Reasoning models (e.g. moonshotai/kimi-k3) burn tokens on hidden reasoning
-  // before producing content — enforce headroom, and retry once with double
-  // budget if the response comes back with empty content.
+  // before producing content — enforce headroom. Low reasoning effort keeps
+  // latency in check (K3 low-effort turns measured ~10–25s vs 38–74s default).
+  // The unified `reasoning` param is OpenRouter-specific — don't send it to
+  // arbitrary OpenAI-compatible BYO endpoints, which may strict-validate.
+  const isOpenRouter = /openrouter/i.test(endpoint.baseUrl);
   let budget = Math.max(call.maxTokens ?? 1500, 2500);
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const resp = await fetch(`${endpoint.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${endpoint.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: endpoint.model,
-        messages: call.messages,
-        temperature: call.temperature ?? 0.7,
-        max_tokens: budget,
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
+  const maxAttempts = interactive ? 1 : 2; // batch may retry once on empty content
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(`${endpoint.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${endpoint.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: endpoint.model,
+          messages: call.messages,
+          temperature: call.temperature ?? 0.7,
+          max_tokens: budget,
+          ...(isOpenRouter ? { reasoning: { effort: "low" } } : {}),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      // AbortSignal.timeout / network failure — surface a friendly, retryable message.
+      console.warn(`[llm] request failed (${(err as Error).name}): ${(err as Error).message}`);
+      throw new Error("The model took too long to respond — please try again.");
+    }
 
     if (!resp.ok) {
-      throw new Error(`LLM endpoint error (${resp.status}): ${await resp.text()}`);
+      const body = (await resp.text()).slice(0, 300);
+      throw new Error(`LLM endpoint error (${resp.status}): ${body}`);
     }
 
     const data = (await resp.json()) as {
@@ -148,11 +172,11 @@ async function completeLive(
       return { ...result, devMode: false };
     }
 
-    console.warn(`[llm] empty content (attempt ${attempt + 1}, budget ${budget}) — retrying with more headroom`);
+    console.warn(`[llm] empty content (attempt ${attempt + 1}, budget ${budget})`);
     budget *= 2;
   }
 
-  throw new Error("LLM returned empty content after retry");
+  throw new Error("The model returned an empty response — please try again.");
 }
 
 export const llm = {

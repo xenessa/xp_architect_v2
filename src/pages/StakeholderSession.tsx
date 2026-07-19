@@ -99,6 +99,15 @@ function StageHeader({ current, sub }: { current: 1 | 2 | 3; sub?: string }) {
   );
 }
 
+/** Raw transport/timeout failures read terribly — map them to plain language. */
+function friendlyChatError(message: string | null): string | null {
+  if (!message) return null;
+  if (/Unexpected token|DOCTYPE|not valid JSON|Failed to fetch|NetworkError/i.test(message)) {
+    return "The response took too long and the connection was cut. Press send again to continue.";
+  }
+  return message;
+}
+
 function ChatPanel({
   messages,
   isPending,
@@ -109,7 +118,7 @@ function ChatPanel({
   messages: Msg[];
   isPending: boolean;
   error: string | null;
-  onSend: (text: string) => void;
+  onSend: (text: string, done: (ok: boolean) => void) => void;
   placeholder?: string;
 }) {
   const [draft, setDraft] = useState("");
@@ -123,7 +132,9 @@ function ChatPanel({
     const text = draft.trim();
     if (!text || isPending) return;
     setDraft("");
-    onSend(text);
+    onSend(text, (ok) => {
+      if (!ok) setDraft(text); // keep the user's words when a send fails
+    });
   };
 
   return (
@@ -255,16 +266,30 @@ function AssessmentView({
   onFormSwitch: () => void;
 }) {
   const utils = trpc.useUtils();
-  const reply = trpc.session.reply.useMutation({
-    onSuccess: () => utils.session.getState.invalidate({ token }),
-  });
+  const reply = trpc.session.reply.useMutation();
   return (
     <div className="flex flex-col gap-4">
       <ChatPanel
         messages={messages}
         isPending={reply.isPending}
-        error={reply.error?.message ?? null}
-        onSend={(text) => reply.mutate({ token, message: text })}
+        error={friendlyChatError(reply.error?.message ?? null)}
+        onSend={(text, done) =>
+          reply.mutate(
+            { token, message: text },
+            {
+              onSuccess: () => {
+                done(true);
+                utils.session.getState.invalidate({ token });
+              },
+              // Refetch even on failure: the answer may have been saved
+              // server-side before the model timed out.
+              onError: () => {
+                done(false);
+                utils.session.getState.invalidate({ token });
+              },
+            },
+          )
+        }
       />
       <button
         onClick={onFormSwitch}
@@ -336,9 +361,7 @@ function DiscoveryView({
   pendingSummary: { id: number; phase: number; summary: string } | null;
 }) {
   const utils = trpc.useUtils();
-  const reply = trpc.session.discoveryReply.useMutation({
-    onSuccess: () => utils.session.getState.invalidate({ token }),
-  });
+  const reply = trpc.session.discoveryReply.useMutation();
   const phase = currentPhase ?? 1;
   const phaseMessages = messages.filter((m) => m.stage === "discovery");
 
@@ -371,8 +394,24 @@ function DiscoveryView({
         <ChatPanel
           messages={phaseMessages}
           isPending={reply.isPending}
-          error={reply.error?.message ?? null}
-          onSend={(text) => reply.mutate({ token, message: text })}
+          error={friendlyChatError(reply.error?.message ?? null)}
+          onSend={(text, done) =>
+            reply.mutate(
+              { token, message: text },
+              {
+                onSuccess: () => {
+                  done(true);
+                  utils.session.getState.invalidate({ token });
+                },
+                // Refetch even on failure: the answer may have been saved
+                // server-side before the model timed out.
+                onError: () => {
+                  done(false);
+                  utils.session.getState.invalidate({ token });
+                },
+              },
+            )
+          }
         />
       )}
     </div>

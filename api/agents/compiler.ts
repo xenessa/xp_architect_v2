@@ -263,6 +263,7 @@ export async function runBatchConsolidation(projectId: number) {
         temperature: 0.3,
         maxTokens: 4000,
         messages: [{ role: "user", content: consolidationPrompt(project, digests) }],
+        interactive: true, // owner-triggered from the Compilation tab — fail fast
       },
       compiledDatasetSchema,
       project,
