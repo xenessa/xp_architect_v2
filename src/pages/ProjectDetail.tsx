@@ -472,10 +472,14 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
     utils.billing.getBilling.invalidate({ projectId });
   };
 
-  // On return from successful checkout, give the webhook a beat, then refresh.
+  const sync = trpc.billing.syncCheckout.useMutation({ onSuccess: invalidate });
+
+  // On return from checkout, reconcile directly against Stripe (the webhook
+  // remains the production path; this covers the pre-webhook-setup window).
   useEffect(() => {
     if (searchParams.get("purchase") !== "success") return;
-    const t = setTimeout(invalidate, 2500);
+    sync.mutate({ projectId });
+    const t = setTimeout(invalidate, 3000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

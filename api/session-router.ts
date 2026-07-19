@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
+import { publicOrigin } from "./origin";
 import {
   stakeholders,
   stakeholderSessions,
@@ -169,7 +170,7 @@ export const sessionRouter = createRouter({
   /** Final submission. */
   submitFinal: publicQuery.input(tokenInput).mutation(async ({ input, ctx: tCtx }) => {
     const ctx = await requireSessionByToken(input.token);
-    return submitFinal(ctx, new URL(tCtx.req.url).origin);
+    return submitFinal(ctx, publicOrigin(tCtx.req));
   }),
 
   /** Begin Stage 1 (assessment). */

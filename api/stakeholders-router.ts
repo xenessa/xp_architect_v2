@@ -6,6 +6,7 @@ import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { assertProjectOwner } from "./queries/projects";
 import { sendEmail, inviteEmailHtml } from "./mailer";
+import { publicOrigin } from "./origin";
 import {
   stakeholders,
   stakeholderSessions,
@@ -30,7 +31,7 @@ function inviteExpiry(): Date {
 }
 
 function originOf(req: Request): string {
-  return new URL(req.url).origin;
+  return publicOrigin(req);
 }
 
 async function requireStakeholder(id: number) {

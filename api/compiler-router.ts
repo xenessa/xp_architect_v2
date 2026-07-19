@@ -6,6 +6,7 @@ import { getDb } from "./queries/connection";
 import { assertProjectOwner } from "./queries/projects";
 import { runBatchConsolidation } from "./agents/compiler";
 import { runNudgeSweep } from "./nudges";
+import { publicOrigin } from "./origin";
 import {
   compilerAlerts,
   compiledReports,
@@ -26,8 +27,8 @@ export const compilerRouter = createRouter({
       const db = getDb();
 
       // Lazy nudge sweep on dashboard read (no scheduler in this environment).
-      void runNudgeSweep(input.projectId, new URL(ctx.req.url).origin).catch(
-        (err) => console.warn("[nudges] sweep failed:", err),
+      void runNudgeSweep(input.projectId, publicOrigin(ctx.req)).catch((err) =>
+        console.warn("[nudges] sweep failed:", err),
       );
 
       const alerts = await db
