@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AuthLayout from "@/components/AuthLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,19 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
-import { useParams } from "react-router";
-import { CheckCheck, Copy, Mail, RefreshCw, Trash2, UserPlus } from "lucide-react";
+import { useParams, useSearchParams } from "react-router";
+import {
+  CheckCheck,
+  CheckCircle2,
+  Copy,
+  Download,
+  FileText,
+  Lock,
+  Mail,
+  RefreshCw,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 
 type Severity = "low" | "medium" | "high";
 
@@ -434,8 +445,266 @@ function CompilationTab({ projectId }: { projectId: number }) {
   );
 }
 
+const PACKAGE_FEATURES: Record<string, string[]> = {
+  SA: ["Solution Design Document", "Built from the compiled dataset", ".docx export, versioned"],
+  PM: ["Project Documentation", "Built from the compiled dataset", ".docx export, versioned"],
+  SA_PM_BUNDLE: [
+    "Both SA and PM deliverables",
+    "Cross-referencing layer between them",
+    "~20% below buying the pair",
+  ],
+};
+
+const STATUS_FLOW: Record<string, { next: "in_review" | "approved"; label: string } | null> = {
+  draft: { next: "in_review", label: "Move to review" },
+  in_review: { next: "approved", label: "Approve" },
+  approved: null,
+};
+
+function DeliverablesTab({ projectId }: { projectId: number }) {
+  const utils = trpc.useUtils();
+  const [searchParams] = useSearchParams();
+  const purchaseState = searchParams.get("purchase");
+  const data = trpc.team.getDeliverables.useQuery({ projectId });
+  const billing = trpc.billing.getBilling.useQuery({ projectId });
+  const invalidate = () => {
+    utils.team.getDeliverables.invalidate({ projectId });
+    utils.billing.getBilling.invalidate({ projectId });
+  };
+
+  // On return from successful checkout, give the webhook a beat, then refresh.
+  useEffect(() => {
+    if (searchParams.get("purchase") !== "success") return;
+    const t = setTimeout(invalidate, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+  const checkout = trpc.billing.createCheckout.useMutation({
+    onSuccess: (r) => {
+      if (r.url) window.location.href = r.url;
+    },
+  });
+  const generate = trpc.team.generate.useMutation({ onSuccess: invalidate });
+  const updateStatus = trpc.team.updateStatus.useMutation({ onSuccess: invalidate });
+
+  const [downloading, setDownloading] = useState<number | null>(null);
+  const handleDownload = async (deliverableId: number) => {
+    setDownloading(deliverableId);
+    try {
+      const res = await utils.team.downloadDocx.fetch({ deliverableId });
+      const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  if (data.isLoading || billing.isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading deliverables…</p>;
+  }
+  if (!data.data || !billing.data) {
+    return (
+      <p className="text-sm text-destructive">
+        Couldn't load deliverables. {data.error?.message ?? billing.error?.message}
+      </p>
+    );
+  }
+  const d = data.data;
+  const b = billing.data;
+  const entitled = b.entitlement.sa || b.entitlement.pm;
+  const latestFor = (profile: "SA" | "PM") =>
+    d.deliverables.find((doc) => doc.profile === profile) ?? null;
+
+  return (
+    <div className="flex flex-col gap-6">
+      {purchaseState === "success" && (
+        <p className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2 text-sm">
+          Payment received — your package is unlocked. Generate your deliverable below.
+        </p>
+      )}
+      {purchaseState === "cancelled" && (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          Checkout cancelled — nothing was charged.
+        </p>
+      )}
+
+      {!entitled && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {b.packages.map((pkg) => (
+            <Card
+              key={pkg.key}
+              className={pkg.key === "SA_PM_BUNDLE" ? "border-primary" : ""}
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">
+                    {pkg.key === "SA" ? "SA profile" : pkg.key === "PM" ? "PM profile" : "SA + PM bundle"}
+                  </CardTitle>
+                  {pkg.key === "SA_PM_BUNDLE" && <Badge>Recommended</Badge>}
+                </div>
+                <p className="text-2xl font-semibold">
+                  ${(pkg.amountCents / 100).toLocaleString()}
+                  <span className="text-sm font-normal text-muted-foreground"> / project</span>
+                </p>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+                  {PACKAGE_FEATURES[pkg.key].map((f) => (
+                    <li key={f} className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  variant={pkg.key === "SA_PM_BUNDLE" ? "default" : "outline"}
+                  disabled={checkout.isPending}
+                  onClick={() => checkout.mutate({ projectId, package: pkg.key as "SA" | "PM" | "SA_PM_BUNDLE" })}
+                >
+                  {checkout.isPending ? "Redirecting…" : "Buy with Stripe"}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+          {checkout.error && (
+            <p className="text-sm text-destructive md:col-span-3">{checkout.error.message}</p>
+          )}
+        </div>
+      )}
+
+      {entitled && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Unlocked:</span>
+          {b.entitlement.sa && <Badge>SA profile</Badge>}
+          {b.entitlement.pm && <Badge>PM profile</Badge>}
+          {b.entitlement.crossRef && <Badge variant="secondary">Cross-referencing</Badge>}
+        </div>
+      )}
+
+      {(["SA", "PM"] as const).map((profile) => {
+        const unlocked = profile === "SA" ? b.entitlement.sa : b.entitlement.pm;
+        const doc = latestFor(profile);
+        const title =
+          profile === "SA" ? "Solution Design Document" : "Project Documentation";
+        const flow = doc ? STATUS_FLOW[doc.status] : null;
+        return (
+          <Card key={profile}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-base">
+                  {title} <span className="text-muted-foreground">({profile})</span>
+                </CardTitle>
+                {doc && (
+                  <Badge variant={doc.status === "approved" ? "default" : "secondary"}>
+                    v{doc.version} · {doc.status.replace("_", " ")}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {doc && flow && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updateStatus.isPending}
+                    onClick={() => updateStatus.mutate({ deliverableId: doc.id, status: flow.next })}
+                  >
+                    {flow.label}
+                  </Button>
+                )}
+                {doc && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={downloading === doc.id}
+                    onClick={() => handleDownload(doc.id)}
+                  >
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    {downloading === doc.id ? "Preparing…" : ".docx"}
+                  </Button>
+                )}
+                {unlocked && (
+                  <Button
+                    size="sm"
+                    disabled={
+                      generate.isPending || d.compiledReportVersion === null
+                    }
+                    onClick={() => generate.mutate({ projectId, profile })}
+                    title={
+                      d.compiledReportVersion === null
+                        ? "Run the Compiler first (Compilation tab)"
+                        : doc
+                          ? `Regenerate → v${doc.version + 1}`
+                          : "Generate from the compiled dataset"
+                    }
+                  >
+                    {generate.isPending
+                      ? "Generating…"
+                      : doc
+                        ? `Re-generate (→ v${doc.version + 1})`
+                        : "Generate"}
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {!unlocked && (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Lock className="h-4 w-4" />
+                  Locked — purchase the {profile} profile (or the bundle) to unlock
+                  generation.
+                </p>
+              )}
+              {unlocked && d.compiledReportVersion === null && (
+                <p className="text-sm text-muted-foreground">
+                  Almost there — run the Compiler on the Compilation tab first;
+                  deliverables are generated from the compiled dataset.
+                </p>
+              )}
+              {unlocked && !doc && d.compiledReportVersion !== null && (
+                <p className="text-sm text-muted-foreground">
+                  Ready — generate the {title} from compiled dataset v
+                  {d.compiledReportVersion}.
+                </p>
+              )}
+              {doc && (
+                <>
+                  <div className="max-h-96 overflow-y-auto rounded-lg border bg-muted/30 p-4">
+                    <pre className="whitespace-pre-wrap font-sans text-sm">
+                      {doc.contentMd}
+                    </pre>
+                  </div>
+                  {doc.crossRoleNotesMd && (
+                    <div className="rounded-lg border border-primary/30 p-4">
+                      <p className="mb-1 text-sm font-medium">
+                        Cross-referencing layer
+                      </p>
+                      <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
+                        {doc.crossRoleNotesMd}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const projectId = Number(id);
   const project = trpc.projects.get.useQuery({ id: projectId });
   const progress = trpc.stakeholders.progress.useQuery({ projectId });
@@ -467,7 +736,7 @@ export default function ProjectDetail() {
           </p>
         </div>
 
-        <Tabs defaultValue="setup">
+        <Tabs defaultValue={searchParams.get("tab") ?? "setup"}>
           <TabsList>
             <TabsTrigger value="setup">Setup</TabsTrigger>
             <TabsTrigger value="discovery">Discovery Progress</TabsTrigger>
@@ -568,11 +837,7 @@ export default function ProjectDetail() {
             <CompilationTab projectId={projectId} />
           </TabsContent>
           <TabsContent value="deliverables" className="mt-4">
-            <Card className="border-dashed">
-              <CardContent className="p-6 text-sm text-muted-foreground">
-                SA / PM deliverables arrive in Phase 5.
-              </CardContent>
-            </Card>
+            <DeliverablesTab projectId={projectId} />
           </TabsContent>
         </Tabs>
       </div>

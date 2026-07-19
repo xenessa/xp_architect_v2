@@ -6,12 +6,24 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
+import { handleStripeWebhook } from "./stripe-webhook";
 import { Paths } from "@contracts/constants";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
+// Raw route (not tRPC): Stripe signature verification needs the exact raw body.
+app.post("/api/webhooks/stripe", async (c) => {
+  try {
+    const raw = await c.req.text();
+    const result = await handleStripeWebhook(raw, c.req.header("stripe-signature"));
+    return c.json(result);
+  } catch (err) {
+    console.warn("[stripe] webhook rejected:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Webhook verification failed" }, 400);
+  }
+});
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

@@ -3,6 +3,8 @@ import { projectsRouter } from "./projects-router";
 import { stakeholdersRouter } from "./stakeholders-router";
 import { sessionRouter } from "./session-router";
 import { compilerRouter } from "./compiler-router";
+import { billingRouter } from "./billing-router";
+import { teamRouter } from "./team-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -12,6 +14,8 @@ export const appRouter = createRouter({
   stakeholders: stakeholdersRouter,
   session: sessionRouter,
   compiler: compilerRouter,
+  billing: billingRouter,
+  team: teamRouter,
 });
 
 export type AppRouter = typeof appRouter;
