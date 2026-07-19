@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
@@ -490,6 +491,8 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   });
   const generate = trpc.team.generate.useMutation({ onSuccess: invalidate });
   const updateStatus = trpc.team.updateStatus.useMutation({ onSuccess: invalidate });
+  const submitFeedback = trpc.team.submitFeedback.useMutation({ onSuccess: invalidate });
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({});
 
   const [downloading, setDownloading] = useState<number | null>(null);
   const handleDownload = async (deliverableId: number) => {
@@ -673,6 +676,16 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
                   deliverables are generated from the compiled dataset.
                 </p>
               )}
+              {unlocked &&
+                d.compiledReportVersion !== null &&
+                d.readinessScore !== null &&
+                d.readinessScore < 70 && (
+                  <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                    Thin data warning — compiled readiness is {d.readinessScore}/100.
+                    Generation is blocked below 40; more completed sessions and a fresh
+                    Compiler run will raise the quality of this document.
+                  </p>
+                )}
               {unlocked && !doc && d.compiledReportVersion !== null && (
                 <p className="text-sm text-muted-foreground">
                   Ready — generate the {title} from compiled dataset v
@@ -696,6 +709,44 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
                       </pre>
                     </div>
                   )}
+                  <div className="flex flex-col gap-2 rounded-lg border p-4">
+                    <p className="text-sm font-medium">Feedback for the next version</p>
+                    <Textarea
+                      rows={2}
+                      value={feedbackDrafts[doc.id] ?? ""}
+                      onChange={(e) =>
+                        setFeedbackDrafts((m) => ({ ...m, [doc.id]: e.target.value }))
+                      }
+                      placeholder="e.g. Emphasize integration risks in section 5; shorten the executive summary."
+                    />
+                    <div className="flex items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !feedbackDrafts[doc.id]?.trim() || submitFeedback.isPending
+                        }
+                        onClick={() =>
+                          submitFeedback.mutate(
+                            { deliverableId: doc.id, feedback: feedbackDrafts[doc.id].trim() },
+                            {
+                              onSuccess: () =>
+                                setFeedbackDrafts((m) => ({ ...m, [doc.id]: "" })),
+                            },
+                          )
+                        }
+                      >
+                        {submitFeedback.isPending
+                          ? "Regenerating…"
+                          : "Regenerate with feedback"}
+                      </Button>
+                      {submitFeedback.error && (
+                        <p className="text-sm text-destructive">
+                          {submitFeedback.error.message}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </>
               )}
             </CardContent>

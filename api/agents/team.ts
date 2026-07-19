@@ -19,7 +19,11 @@ const deliverableSchema = z.object({
   cross_role_notes_md: z.string().nullable(),
 });
 
-export async function generateDeliverable(projectId: number, profile: DeliverableProfile) {
+export async function generateDeliverable(
+  projectId: number,
+  profile: DeliverableProfile,
+  feedback?: string,
+) {
   const db = getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
@@ -58,14 +62,17 @@ export async function generateDeliverable(projectId: number, profile: Deliverabl
         temperature: 0.4,
         maxTokens: 6000,
         messages: [
-          { role: "user", content: deliverablePrompt(project, profile, dataset, otherSynopsis) },
+          {
+            role: "user",
+            content: deliverablePrompt(project, profile, dataset, otherSynopsis, feedback),
+          },
         ],
       },
       deliverableSchema,
       project,
     );
   } else {
-    result = devDeliverable(project, profile, dataset, otherSynopsis);
+    result = devDeliverable(project, profile, dataset, otherSynopsis, feedback);
     await llm.logDevCall(
       { agent: "team", purpose: `deliverable_${profile.toLowerCase()}`, projectId, messages: [] },
       result.body_md.length,
@@ -73,12 +80,18 @@ export async function generateDeliverable(projectId: number, profile: Deliverabl
   }
 
   const [prev] = await db
-    .select({ version: deliverables.version })
+    .select()
     .from(deliverables)
     .where(and(eq(deliverables.projectId, projectId), eq(deliverables.profile, profile)))
     .orderBy(desc(deliverables.version))
     .limit(1);
   const version = (prev?.version ?? 0) + 1;
+
+  // Feedback audit trail (§6.5): carry the prior log, append this round.
+  const priorLog = Array.isArray(prev?.feedbackLogJson) ? (prev.feedbackLogJson as unknown[]) : [];
+  const feedbackLog = feedback
+    ? [...priorLog, { version, feedback, at: new Date().toISOString() }]
+    : priorLog;
 
   const [inserted] = await db
     .insert(deliverables)
@@ -89,6 +102,7 @@ export async function generateDeliverable(projectId: number, profile: Deliverabl
       status: "draft",
       contentMd: `# ${result.title}\n\n${result.body_md}`,
       crossRoleNotesMd: result.cross_role_notes_md,
+      feedbackLogJson: feedbackLog,
     })
     .$returningId();
 
@@ -101,6 +115,7 @@ function devDeliverable(
   profile: DeliverableProfile,
   d: CompiledDataset,
   otherSynopsis: string | null,
+  feedback?: string,
 ): z.infer<typeof deliverableSchema> {
   const spec = PROFILE_SPECS[profile];
   const client = project.clientName ? ` for ${project.clientName}` : "";
@@ -155,9 +170,13 @@ function devDeliverable(
     ? `## Cross-Role Notes\nThe companion ${profile === "SA" ? "PM Project Documentation" : "SA Solution Design Document"} exists. Align shared sections (scope register, risks, open questions) at each regeneration; divergences are flagged here after live-model comparison.`
     : null;
 
+  const bodyWithFeedback = feedback
+    ? `${body}\n\n## Revision Notes\nThis version was regenerated in response to lead feedback: "${feedback}". The feedback is logged in the audit trail; full narrative synthesis of revisions runs when a live model endpoint is configured.`
+    : body;
+
   return {
     title: `${spec.docName} — ${project.name}${client}`,
-    body_md: body,
+    body_md: bodyWithFeedback,
     cross_role_notes_md: cross,
   };
 }

@@ -100,6 +100,17 @@ const DEV_PHASE_QUESTIONS: Record<number, string[]> = {
   ],
 };
 
+/** Dev-mode style adaptation (§6.2): question framing varies visibly by profile. */
+const DEV_STYLE_FRAME: Record<string, (q: string) => string> = {
+  detail_oriented: (q) =>
+    `${q} The more precise the better — names, volumes, exact steps all help.`,
+  big_picture: (q) =>
+    `Zooming out for a moment. ${q} Think impact and direction, not minutiae.`,
+  story_narrative: (q) =>
+    `${q} If a real example comes to mind — a specific week, a specific deal — start there.`,
+  problem_solving: (q) => `Straight to it. ${q} What's broken, and what's it costing you?`,
+};
+
 function devSummary(phase: number, stakeholderTexts: string[]): string {
   const snippets = stakeholderTexts
     .slice(-4)
@@ -175,10 +186,11 @@ async function nextAgentMessage(
           ]
         : [];
 
+    const frame = DEV_STYLE_FRAME[assessment?.primaryStyle ?? "problem_solving"];
     envelope = {
       message: done
         ? "That's everything I wanted to cover in this phase. Here's my summary of what you told me — please check it over."
-        : questions[exchangeCount],
+        : frame(questions[exchangeCount]),
       phase_complete: done,
       summary: done ? devSummary(phase, stakeholderTexts) : null,
       flags: demoFlags,

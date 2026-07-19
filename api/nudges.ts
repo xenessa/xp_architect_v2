@@ -39,6 +39,8 @@ export async function runNudgeSweep(projectId: number, origin: string): Promise<
 
   for (const { stakeholder: s, session } of roster) {
     if (session?.state === "COMPLETED") continue;
+    // Token expired — nudging is pointless; the lead must regenerate the link.
+    if (s.inviteExpiresAt && s.inviteExpiresAt.getTime() < now) continue;
 
     const basis = (s.lastActivityAt ?? s.invitedAt)?.getTime?.() ?? null;
     if (basis === null || now - basis < STALL_MS) continue;

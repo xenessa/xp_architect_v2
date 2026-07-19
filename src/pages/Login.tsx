@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router";
 
 function getOAuthUrl() {
   const kimiAuthUrl = import.meta.env.VITE_KIMI_AUTH_URL;
@@ -24,7 +25,7 @@ export default function Login() {
         <CardHeader className="text-center">
           <CardTitle>Welcome</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-3">
           <Button
             className="w-full"
             size="lg"
@@ -34,6 +35,11 @@ export default function Login() {
           >
             Sign in with Kimi
           </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            <Link to="/privacy" className="underline underline-offset-4">
+              Privacy &amp; data handling
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -28,14 +28,21 @@ export const teamRouter = createRouter({
         .orderBy(desc(deliverables.profile), desc(deliverables.version));
 
       const [report] = await db
-        .select({ version: compiledReports.version })
+        .select()
         .from(compiledReports)
         .where(eq(compiledReports.projectId, input.projectId))
         .orderBy(desc(compiledReports.version))
         .limit(1);
 
       const entitlement = await getEntitlement(input.projectId);
-      return { deliverables: docs, entitlement, compiledReportVersion: report?.version ?? null };
+      const readinessScore =
+        (report?.datasetJson as { readiness_score?: number } | undefined)?.readiness_score ?? null;
+      return {
+        deliverables: docs,
+        entitlement,
+        compiledReportVersion: report?.version ?? null,
+        readinessScore,
+      };
     }),
 
   /** Generate (or regenerate) a deliverable. Requires entitlement + compiler run. */
@@ -51,6 +58,23 @@ export const teamRouter = createRouter({
           message: `The ${input.profile} profile isn't unlocked for this project — purchase it first.`,
         });
       }
+
+      // Thin-data gate (§12.7): refuse to generate from insufficient coverage.
+      const [report] = await getDb()
+        .select()
+        .from(compiledReports)
+        .where(eq(compiledReports.projectId, input.projectId))
+        .orderBy(desc(compiledReports.version))
+        .limit(1);
+      const readiness =
+        (report?.datasetJson as { readiness_score?: number } | undefined)?.readiness_score ?? null;
+      if (report && readiness !== null && readiness < 40) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Compiled coverage is too thin to generate from (readiness ${readiness}/100). Complete more discovery sessions and re-run the Compiler.`,
+        });
+      }
+
       return generateDeliverable(input.projectId, input.profile);
     }),
 
@@ -76,6 +100,29 @@ export const teamRouter = createRouter({
         .set({ status: input.status })
         .where(eq(deliverables.id, input.deliverableId));
       return { ok: true };
+    }),
+
+  /** Regenerate a deliverable incorporating lead feedback (§12.6). */
+  submitFeedback: authedQuery
+    .input(z.object({ deliverableId: z.number(), feedback: z.string().min(1).max(4000) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const [doc] = await db
+        .select()
+        .from(deliverables)
+        .where(eq(deliverables.id, input.deliverableId))
+        .limit(1);
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Deliverable not found" });
+      await assertProjectOwner(doc.projectId, ctx.user.id);
+      const entitlement = await getEntitlement(doc.projectId);
+      const allowed = doc.profile === "SA" ? entitlement.sa : entitlement.pm;
+      if (!allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `The ${doc.profile} profile isn't unlocked for this project.`,
+        });
+      }
+      return generateDeliverable(doc.projectId, doc.profile, input.feedback);
     }),
 
   /** Export a deliverable as a formatted .docx download (Q3). */

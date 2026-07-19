@@ -64,6 +64,7 @@ export function deliverablePrompt(
   profile: DeliverableProfile,
   dataset: CompiledDataset,
   otherDocSummary: string | null,
+  feedback?: string,
 ): string {
   const spec = PROFILE_SPECS[profile];
   return `You are the Team Agent for XP Architect, producing the ${spec.docName} for an enterprise software engagement.
@@ -83,7 +84,11 @@ ${
     : "No companion document exists yet — set cross_role_notes_md to null."
 }
 
-Rules:
+${
+  feedback
+    ? `REVISION REQUEST: the project lead reviewed the previous version and requests these changes:\n"${feedback}"\nApply them faithfully while keeping the document's overall structure.\n\n`
+    : ""
+}Rules:
 - Every claim must trace to the compiled dataset; mark inference explicitly as "(inference)".
 - Professional consulting tone; markdown body; no preamble outside the JSON.
 - Body length: 600–1000 words of markdown.

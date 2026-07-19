@@ -99,6 +99,33 @@ export const projectsRouter = createRouter({
       return project;
     }),
 
+  /**
+   * BYO model endpoint (§9.3 privacy tier 2, Q7): point this project's LLM
+   * traffic at a customer-supplied OpenAI-compatible endpoint. Config-only —
+   * set/cleared here; the gateway prefers it over environment defaults.
+   */
+  updateLlmEndpoint: authedQuery
+    .input(
+      z.object({
+        id: z.number(),
+        endpoint: z
+          .object({
+            baseUrl: z.string().url().max(500),
+            apiKey: z.string().min(1).max(500),
+            model: z.string().min(1).max(255),
+          })
+          .nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProjectOwner(input.id, ctx.user.id);
+      await getDb()
+        .update(projects)
+        .set({ llmEndpointJson: input.endpoint })
+        .where(eq(projects.id, input.id));
+      return { ok: true, configured: input.endpoint !== null };
+    }),
+
   /** Full cascade delete (§9.2 retention & deletion). */
   delete: authedQuery
     .input(z.object({ id: z.number() }))
