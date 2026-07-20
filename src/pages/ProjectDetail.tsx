@@ -235,7 +235,34 @@ function CompilationTab({ projectId }: { projectId: number }) {
     utils.compiler.getCompilation.invalidate({ projectId });
     utils.projects.get.invalidate({ id: projectId });
   };
-  const run = trpc.compiler.runCompilation.useMutation({ onSuccess: invalidate });
+  // Consolidation runs as a background job (it can take minutes on a reasoning
+  // model) — start it, then poll compilationStatus until it lands or fails.
+  const [compiling, setCompiling] = useState(false);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const run = trpc.compiler.runCompilation.useMutation({
+    onSuccess: (res) => {
+      if (res.started) {
+        setJobError(null);
+        setCompiling(true);
+      }
+    },
+  });
+  const status = trpc.compiler.compilationStatus.useQuery(
+    { projectId },
+    { enabled: compiling, refetchInterval: 4000 },
+  );
+  const job = status.data?.job ?? null;
+  useEffect(() => {
+    if (!compiling || !job) return;
+    if (job.status === "done") {
+      setCompiling(false);
+      invalidate();
+    } else if (job.status === "failed") {
+      setCompiling(false);
+      setJobError(job.error ?? "Compilation failed — please try again.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compiling, job?.status]);
   const markRead = trpc.compiler.markAlertRead.useMutation({ onSuccess: invalidate });
   const markAll = trpc.compiler.markAllAlertsRead.useMutation({ onSuccess: invalidate });
 
@@ -321,9 +348,9 @@ function CompilationTab({ projectId }: { projectId: number }) {
           </div>
           <Button
             onClick={() => run.mutate({ projectId })}
-            disabled={d.completedCount === 0 || run.isPending}
+            disabled={d.completedCount === 0 || run.isPending || compiling}
           >
-            {run.isPending
+            {run.isPending || compiling
               ? "Compiling…"
               : report
                 ? `Re-run Compiler (→ v${report.version + 1})`
@@ -331,6 +358,13 @@ function CompilationTab({ projectId }: { projectId: number }) {
           </Button>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
+          {compiling && (
+            <p className="text-sm text-muted-foreground">
+              The Compiler is consolidating the completed sessions — this takes a minute or
+              two. The page updates itself when it's done.
+            </p>
+          )}
+          {jobError && <p className="text-sm text-destructive">{jobError}</p>}
           {run.error && <p className="text-sm text-destructive">{run.error.message}</p>}
           {!dataset && (
             <p className="text-sm text-muted-foreground">

@@ -38,6 +38,8 @@ export interface LlmCall {
    * If no chat model is configured, "chat" falls back to the primary model.
    */
   lane?: "chat" | "synthesis";
+  /** Override the per-attempt timeout (ms) — for long background batch jobs. */
+  timeoutMs?: number;
   /**
    * Reasoning control for reasoning models (OpenRouter only — the param is
    * not sent to other OpenAI-compatible endpoints, which may strict-validate,
@@ -137,8 +139,8 @@ async function completeLive(
   const interactive = call.interactive ?? false;
   // Interactive turns must fail before the hosting platform's edge timeout
   // (observed ≥75s) so the client receives a parseable JSON error; batch work
-  // (deliverables) gets more headroom.
-  const timeoutMs = interactive ? 50_000 : 100_000;
+  // (deliverables) gets more headroom, and background jobs can opt into more.
+  const timeoutMs = call.timeoutMs ?? (interactive ? 50_000 : 100_000);
   // Reasoning models (e.g. moonshotai/kimi-k3) burn tokens on hidden reasoning
   // before producing content — enforce headroom, and let callers disable or
   // lighten reasoning (see LlmCall.reasoning). The unified `reasoning` param

@@ -263,7 +263,9 @@ export async function runBatchConsolidation(projectId: number) {
         temperature: 0.3,
         maxTokens: 4000,
         messages: [{ role: "user", content: consolidationPrompt(project, digests) }],
-        interactive: true, // owner-triggered from the Compilation tab — fail fast
+        // Runs as a background job (see startBatchConsolidation) — no HTTP
+        // request is held open, so allow generous time for the large dataset.
+        timeoutMs: 300_000,
       },
       compiledDatasetSchema,
       project,
@@ -290,6 +292,51 @@ export async function runBatchConsolidation(projectId: number) {
     .$returningId();
 
   return { id: inserted.id, version, dataset };
+}
+
+/* ------------------------------------------------------------------ */
+/* Background consolidation jobs (§6.4).                                */
+/* A full consolidation can take 1–3 minutes on a reasoning model — far */
+/* beyond any HTTP request budget — so it runs detached; the UI polls   */
+/* compilationStatus until the job lands. In-memory registry: fine for  */
+/* a single-instance deployment; worst case after a restart is a stale  */
+/* "running" flag that the next run overwrites.                         */
+/* ------------------------------------------------------------------ */
+
+export interface CompilationJob {
+  status: "running" | "done" | "failed";
+  version?: number;
+  error?: string;
+  startedAt: number;
+}
+
+const compilationJobs = new Map<number, CompilationJob>();
+
+export function getCompilationJob(projectId: number): CompilationJob | null {
+  return compilationJobs.get(projectId) ?? null;
+}
+
+/** Kick off consolidation in the background; no-ops if one is already running. */
+export function startBatchConsolidation(projectId: number): { started: boolean } {
+  if (compilationJobs.get(projectId)?.status === "running") return { started: false };
+  compilationJobs.set(projectId, { status: "running", startedAt: Date.now() });
+  void runBatchConsolidation(projectId)
+    .then((result) =>
+      compilationJobs.set(projectId, {
+        status: "done",
+        version: result.version,
+        startedAt: Date.now(),
+      }),
+    )
+    .catch((err) => {
+      console.error(`[compiler] background consolidation failed for project ${projectId}:`, err);
+      compilationJobs.set(projectId, {
+        status: "failed",
+        error: err instanceof Error ? err.message : "Compilation failed",
+        startedAt: Date.now(),
+      });
+    });
+  return { started: true };
 }
 
 function sqlCount() {

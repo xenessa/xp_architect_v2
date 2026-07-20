@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { assertProjectOwner } from "./queries/projects";
-import { runBatchConsolidation } from "./agents/compiler";
+import { getCompilationJob, startBatchConsolidation } from "./agents/compiler";
 import { runNudgeSweep } from "./nudges";
 import { publicOrigin } from "./origin";
 import {
@@ -72,12 +72,20 @@ export const compilerRouter = createRouter({
       };
     }),
 
-  /** Run (or re-run) batch consolidation — creates a new report version. */
+  /** Run (or re-run) batch consolidation in the background — returns immediately. */
   runCompilation: authedQuery
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await assertProjectOwner(input.projectId, ctx.user.id);
-      return runBatchConsolidation(input.projectId);
+      return startBatchConsolidation(input.projectId);
+    }),
+
+  /** Poll the background consolidation job state for this project. */
+  compilationStatus: authedQuery
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      await assertProjectOwner(input.projectId, ctx.user.id);
+      return { job: getCompilationJob(input.projectId) };
     }),
 
   markAlertRead: authedQuery
