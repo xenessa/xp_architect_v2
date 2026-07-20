@@ -31,6 +31,13 @@ export interface LlmCall {
    * an HTML gateway page) and skip the empty-content retry.
    */
   interactive?: boolean;
+  /**
+   * Reasoning control for reasoning models (OpenRouter only — the param is
+   * not sent to other OpenAI-compatible endpoints, which may strict-validate).
+   * "off" disables hidden reasoning entirely: K3 replies drop from ~15–75s to
+   * ~5–10s. "low" (default) keeps light reasoning for batch synthesis quality.
+   */
+  reasoning?: "off" | "low";
 }
 
 export interface LlmResult {
@@ -117,11 +124,16 @@ async function completeLive(
   // (deliverables) gets more headroom.
   const timeoutMs = interactive ? 50_000 : 100_000;
   // Reasoning models (e.g. moonshotai/kimi-k3) burn tokens on hidden reasoning
-  // before producing content — enforce headroom. Low reasoning effort keeps
-  // latency in check (K3 low-effort turns measured ~10–25s vs 38–74s default).
-  // The unified `reasoning` param is OpenRouter-specific — don't send it to
-  // arbitrary OpenAI-compatible BYO endpoints, which may strict-validate.
+  // before producing content — enforce headroom, and let callers disable or
+  // lighten reasoning (see LlmCall.reasoning). The unified `reasoning` param
+  // is OpenRouter-specific — don't send it to arbitrary OpenAI-compatible
+  // BYO endpoints, which may strict-validate.
   const isOpenRouter = /openrouter/i.test(endpoint.baseUrl);
+  const reasoningParam = !isOpenRouter
+    ? {}
+    : call.reasoning === "off"
+      ? { reasoning: { enabled: false } }
+      : { reasoning: { effort: "low" } };
   let budget = Math.max(call.maxTokens ?? 1500, 2500);
 
   const maxAttempts = interactive ? 1 : 2; // batch may retry once on empty content
@@ -139,7 +151,7 @@ async function completeLive(
           messages: call.messages,
           temperature: call.temperature ?? 0.7,
           max_tokens: budget,
-          ...(isOpenRouter ? { reasoning: { effort: "low" } } : {}),
+          ...reasoningParam,
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });

@@ -69,6 +69,7 @@ async function callForEnvelope(
       projectId: ctx.projectId,
       sessionId: ctx.sessionId,
       interactive: true,
+      reasoning: "off",
     },
     project,
   );
@@ -103,6 +104,7 @@ async function callForEnvelope(
       projectId: ctx.projectId,
       sessionId: ctx.sessionId,
       interactive: true,
+      reasoning: "off",
     },
     project,
   );
