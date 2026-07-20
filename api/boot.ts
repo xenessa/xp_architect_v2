@@ -12,6 +12,9 @@ import { Paths } from "@contracts/constants";
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+// Lightweight liveness probe — the client pings this on load so a cold
+// platform instance is warm before the user triggers real work.
+app.get("/api/health", (c) => c.json({ ok: true }));
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 // Raw route (not tRPC): Stripe signature verification needs the exact raw body.
 app.post("/api/webhooks/stripe", async (c) => {
