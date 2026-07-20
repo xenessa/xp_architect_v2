@@ -54,25 +54,46 @@ export async function generateDeliverable(
     // Sections are independent (each draws only on the compiled dataset), so
     // generate them concurrently — sequential K3 calls would exceed the
     // hosting platform's request timeout for 5–8-section templates.
-    sections = await Promise.all(
-      template.sections.map(async (section) => {
-        const result = await llm.complete(
-          {
-            agent: "team",
-            purpose: `${templateId}:${section.heading.slice(0, 32)}`,
-            projectId,
-            temperature: 0.4,
-            maxTokens: 1200,
-            messages: [
-              { role: "system", content: sectionSystemPrompt(template) },
-              { role: "user", content: sectionUserPrompt(project, template, section, dataset, feedback) },
-            ],
-          },
-          project,
+    const genSection = async (section: (typeof template.sections)[number]) => {
+      const result = await llm.complete(
+        {
+          agent: "team",
+          purpose: `${templateId}:${section.heading.slice(0, 32)}`,
+          projectId,
+          temperature: 0.4,
+          maxTokens: 1200,
+          messages: [
+            { role: "system", content: sectionSystemPrompt(template) },
+            { role: "user", content: sectionUserPrompt(project, template, section, dataset, feedback) },
+          ],
+        },
+        project,
+      );
+      return result.text.trim();
+    };
+
+    const results = await Promise.allSettled(template.sections.map(genSection));
+    const bodies: string[] = new Array(template.sections.length);
+    const failedIdx: number[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") bodies[i] = r.value;
+      else failedIdx.push(i);
+    });
+    // A single flaky section call shouldn't sink the whole deliverable —
+    // retry failures once, serially, before giving up.
+    for (const i of failedIdx) {
+      console.warn(
+        `[team] section "${template.sections[i].heading}" failed in parallel pass — retrying serially`,
+      );
+      try {
+        bodies[i] = await genSection(template.sections[i]);
+      } catch {
+        throw new Error(
+          `The "${template.sections[i].heading}" section failed to generate. The rest of the document is fine — please press Generate again.`,
         );
-        return { heading: section.heading, body: result.text.trim() };
-      }),
-    );
+      }
+    }
+    sections = template.sections.map((s, i) => ({ heading: s.heading, body: bodies[i] }));
   } else {
     sections = devSections(template, project, dataset, feedback);
     await llm.logDevCall(

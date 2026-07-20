@@ -536,7 +536,9 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
       if (r.url) window.location.href = r.url;
     },
   });
-  const generate = trpc.team.generate.useMutation({ onSuccess: invalidate });
+  // Invalidate on success AND on failure: if the platform cut the response
+  // but the server finished generating, a refetch reveals the new version.
+  const generate = trpc.team.generate.useMutation({ onSettled: invalidate });
   const updateStatus = trpc.team.updateStatus.useMutation({ onSuccess: invalidate });
   const submitFeedback = trpc.team.submitFeedback.useMutation({ onSuccess: invalidate });
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({});
@@ -659,11 +661,22 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
         </div>
       )}
 
+      {generate.error && (
+        <p className="text-sm text-destructive">
+          {/Unexpected token|DOCTYPE|not valid JSON|Failed to fetch/i.test(generate.error.message)
+            ? "The response was cut off before it reached you — if no new version appears within a few seconds, press Generate again."
+            : generate.error.message}
+        </p>
+      )}
+
       {d.templates.map((tpl) => {
         const unlocked = tpl.profile === "SA" ? b.entitlement.sa : b.entitlement.pm;
         const doc = latestFor(tpl.id);
         const title = tpl.name;
         const flow = doc ? STATUS_FLOW[doc.status] : null;
+        // One shared mutation drives all cards — scope the spinner/disabled
+        // state to the card actually being generated.
+        const thisCard = generate.isPending && generate.variables?.templateId === tpl.id;
         return (
           <Card key={tpl.id}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -715,7 +728,7 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
                           : "Generate from the compiled dataset"
                     }
                   >
-                    {generate.isPending
+                    {thisCard
                       ? "Generating…"
                       : doc
                         ? `Re-generate (→ v${doc.version + 1})`
