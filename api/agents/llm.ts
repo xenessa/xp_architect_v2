@@ -32,10 +32,18 @@ export interface LlmCall {
    */
   interactive?: boolean;
   /**
+   * Which model lane serves this call. "chat" routes to the fast conversational
+   * model (LLM_CHAT_MODEL, e.g. kimi-k2 — no hidden reasoning, ~4s replies);
+   * "synthesis" (default) uses the primary model (LLM_MODEL, e.g. kimi-k3).
+   * If no chat model is configured, "chat" falls back to the primary model.
+   */
+  lane?: "chat" | "synthesis";
+  /**
    * Reasoning control for reasoning models (OpenRouter only — the param is
-   * not sent to other OpenAI-compatible endpoints, which may strict-validate).
-   * "off" disables hidden reasoning entirely: K3 replies drop from ~15–75s to
-   * ~5–10s. "low" (default) keeps light reasoning for batch synthesis quality.
+   * not sent to other OpenAI-compatible endpoints, which may strict-validate,
+   * nor to the chat lane when it resolves to a different, non-reasoning model).
+   * "off" disables hidden reasoning entirely; "low" (default) keeps light
+   * reasoning for batch synthesis quality.
    */
   reasoning?: "off" | "low";
 }
@@ -53,6 +61,8 @@ interface EndpointConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Fast conversational model for the "chat" lane (optional). */
+  chatModel?: string;
 }
 
 function envEndpoint(): EndpointConfig | null {
@@ -69,14 +79,20 @@ function envEndpoint(): EndpointConfig | null {
     baseUrl,
     apiKey,
     model: process.env.LLM_MODEL ?? process.env.OPENAI_MODEL ?? "openrouter/auto",
+    chatModel: process.env.LLM_CHAT_MODEL ?? undefined,
   };
 }
 
 /** For the owner-only status endpoint — names only, never secrets. */
-export function envEndpointInfo(): { configured: boolean; baseUrl?: string; model?: string } {
+export function envEndpointInfo(): {
+  configured: boolean;
+  baseUrl?: string;
+  model?: string;
+  chatModel?: string;
+} {
   const ep = envEndpoint();
   return ep
-    ? { configured: true, baseUrl: ep.baseUrl, model: ep.model }
+    ? { configured: true, baseUrl: ep.baseUrl, model: ep.model, chatModel: ep.chatModel }
     : { configured: false };
 }
 
@@ -129,11 +145,18 @@ async function completeLive(
   // is OpenRouter-specific — don't send it to arbitrary OpenAI-compatible
   // BYO endpoints, which may strict-validate.
   const isOpenRouter = /openrouter/i.test(endpoint.baseUrl);
-  const reasoningParam = !isOpenRouter
-    ? {}
-    : call.reasoning === "off"
-      ? { reasoning: { enabled: false } }
-      : { reasoning: { effort: "low" } };
+  // Lane resolution: chat lane prefers the configured fast chat model; when
+  // none is set it falls back to the primary (reasoning) model.
+  const model = call.lane === "chat" ? (endpoint.chatModel ?? endpoint.model) : endpoint.model;
+  // Only send reasoning params when the resolved model is the primary
+  // reasoning model — the chat model (e.g. kimi-k2) doesn't reason.
+  const onPrimaryModel = model === endpoint.model;
+  const reasoningParam =
+    !isOpenRouter || !onPrimaryModel
+      ? {}
+      : call.reasoning === "off"
+        ? { reasoning: { enabled: false } }
+        : { reasoning: { effort: "low" } };
   let budget = Math.max(call.maxTokens ?? 1500, 2500);
 
   const maxAttempts = interactive ? 1 : 2; // batch may retry once on empty content
@@ -147,7 +170,7 @@ async function completeLive(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: endpoint.model,
+          model,
           messages: call.messages,
           temperature: call.temperature ?? 0.7,
           max_tokens: budget,
@@ -175,7 +198,7 @@ async function completeLive(
     if (text.trim()) {
       const result = {
         text,
-        model: endpoint.model,
+        model,
         inputTokens: data.usage?.prompt_tokens ?? 0,
         outputTokens: data.usage?.completion_tokens ?? 0,
         latencyMs: Date.now() - started,

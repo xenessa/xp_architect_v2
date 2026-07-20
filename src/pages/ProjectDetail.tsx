@@ -559,7 +559,11 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
       {llm.data && (
         <div>
           {llm.data.mode === "live" ? (
-            <Badge>Live model · {llm.data.model}</Badge>
+            <Badge>
+              {llm.data.chatModel
+                ? `Live · ${llm.data.chatModel.split("/").pop()} chat · ${llm.data.model?.split("/").pop()} docs`
+                : `Live model · ${llm.data.model}`}
+            </Badge>
           ) : (
             <Badge variant="secondary">
               Demo mode — scripted agents (no model endpoint configured)

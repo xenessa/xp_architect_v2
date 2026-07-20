@@ -140,6 +140,7 @@ export const projectsRouter = createRouter({
       model: byo
         ? ((project.llmEndpointJson as { model?: string } | null)?.model ?? null)
         : (envInfo.model ?? null),
+      chatModel: byo ? null : (envInfo.chatModel ?? null),
       baseUrl: byo
         ? ((project.llmEndpointJson as { baseUrl?: string } | null)?.baseUrl ?? null)
         : (envInfo.baseUrl ?? null),
