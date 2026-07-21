@@ -292,13 +292,26 @@ export const emailLogs = mysqlTable("email_logs", {
   projectId: bigint("project_id", { mode: "number", unsigned: true }).references(
     () => projects.id,
   ),
-  type: mysqlEnum("type", ["invite", "nudge", "milestone"]).notNull(),
+  type: mysqlEnum("type", ["invite", "nudge", "milestone", "magic_link"]).notNull(),
   toAddress: varchar("to_address", { length: 320 }).notNull(),
   subject: varchar("subject", { length: 500 }).notNull(),
   status: mysqlEnum("status", ["sent", "failed", "dev_logged"]).notNull(),
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
 export type EmailLog = typeof emailLogs.$inferSelect;
+
+/** Owner magic-link sign-in tokens (§2 amendment): single-use, 15 min, hashed at rest. */
+export const magicTokens = mysqlTable("magic_tokens", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number", unsigned: true })
+    .notNull()
+    .references(() => users.id),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(), // sha256 hex — raw token never stored
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MagicToken = typeof magicTokens.$inferSelect;
 
 export const llmCallLogs = mysqlTable("llm_call_logs", {
   id: serial("id").primaryKey(),

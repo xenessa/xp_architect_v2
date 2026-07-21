@@ -11,7 +11,7 @@ import { emailLogs } from "@db/schema";
  * Every attempt — sent, failed, or dev-logged — is written to `email_logs`.
  */
 
-export type EmailType = "invite" | "nudge" | "milestone";
+export type EmailType = "invite" | "nudge" | "milestone" | "magic_link";
 
 export interface SendEmailOptions {
   to: string;
@@ -94,6 +94,26 @@ export function inviteEmailHtml(params: {
       <p style="color:#64748b;font-size:13px;">
         Or copy this link: ${params.inviteUrl}<br/>
         This link is personal to you and expires in 30 days.
+      </p>
+    </div>`;
+}
+
+/** Owner magic sign-in link (email-based owner auth; no Kimi account needed). */
+export function magicLinkEmailHtml(params: { name: string; url: string }): string {
+  return `
+    <div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto;">
+      <h2 style="margin-bottom: 4px;">Your sign-in link</h2>
+      <p>Hi ${params.name},</p>
+      <p>Click below to sign in to XP Architect. This link works once and expires in 15 minutes.</p>
+      <p style="margin: 24px 0;">
+        <a href="${params.url}"
+           style="background:#0f172a;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;">
+          Sign in
+        </a>
+      </p>
+      <p style="color:#64748b;font-size:13px;">
+        Or copy this link: ${params.url}<br/>
+        If you didn't request this, you can ignore it — nothing happens.
       </p>
     </div>`;
 }

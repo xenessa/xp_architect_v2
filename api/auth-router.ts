@@ -1,10 +1,18 @@
 import * as cookie from "cookie";
+import { z } from "zod";
 import { Session } from "@contracts/constants";
 import { getSessionCookieOptions } from "./lib/cookies";
-import { createRouter, authedQuery } from "./middleware";
+import { createRouter, authedQuery, publicQuery } from "./middleware";
+import { requestMagicLink } from "./auth-magic";
+import { publicOrigin } from "./origin";
 
 export const authRouter = createRouter({
   me: authedQuery.query((opts) => opts.ctx.user),
+
+  /** Email-based owner sign-in: always answers generically. */
+  requestMagicLink: publicQuery
+    .input(z.object({ email: z.string().max(320) }))
+    .mutation(({ ctx, input }) => requestMagicLink(input.email, publicOrigin(ctx.req))),
   logout: authedQuery.mutation(async ({ ctx }) => {
     const opts = getSessionCookieOptions(ctx.req.headers);
     ctx.resHeaders.append(

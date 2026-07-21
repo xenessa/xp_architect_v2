@@ -10,6 +10,7 @@ import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { signSessionToken } from "./kimi/session";
 import { findUserByUnionId } from "./queries/users";
+import { consumeMagicToken } from "./auth-magic";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { getSessionCookieOptions } from "./lib/cookies";
 import { Paths, Session } from "@contracts/constants";
@@ -21,6 +22,19 @@ app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 // platform instance is warm before the user triggers real work.
 app.get("/api/health", (c) => c.json({ ok: true }));
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
+
+/* Email magic-link sign-in (owner auth without a Kimi account). The token  */
+/* is single-use and expires in 15 minutes; only its hash is stored.        */
+app.get("/api/auth/magic", async (c) => {
+  const token = c.req.query("token") ?? "";
+  const session = token ? await consumeMagicToken(token) : null;
+  if (!session) return c.redirect("/login?error=magic", 302);
+  setCookie(c, Session.cookieName, session, {
+    ...getSessionCookieOptions(c.req.raw.headers),
+    maxAge: Session.maxAgeMs / 1000,
+  });
+  return c.redirect("/", 302);
+});
 
 /* Temporary owner sign-in for self-hosted deployments whose domain isn't    */
 /* registered on the OAuth client yet (token exchange rejects unknown        */

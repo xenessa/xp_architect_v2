@@ -1,6 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router";
+import { Input } from "@/components/ui/input";
+import { Link, useSearchParams } from "react-router";
+import { useState } from "react";
+import { trpc } from "@/providers/trpc";
 
 function getOAuthUrl() {
   const kimiAuthUrl = import.meta.env.VITE_KIMI_AUTH_URL;
@@ -19,6 +22,13 @@ function getOAuthUrl() {
 }
 
 export default function Login() {
+  const [params] = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState<"sent" | "dev_logged" | null>(null);
+  const request = trpc.auth.requestMagicLink.useMutation({
+    onSuccess: (res) => setSent(res.delivered === "dev_logged" ? "dev_logged" : "sent"),
+  });
+
   return (
     <div className="min-h-screen flex items-center justify-center">
       <Card className="w-full max-w-sm">
@@ -26,6 +36,12 @@ export default function Login() {
           <CardTitle>Welcome</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {params.get("error") === "magic" && (
+            <p className="text-sm text-destructive text-center">
+              That sign-in link is invalid or has expired — request a new one below.
+            </p>
+          )}
+
           <Button
             className="w-full"
             size="lg"
@@ -35,6 +51,40 @@ export default function Login() {
           >
             Sign in with Kimi
           </Button>
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            or
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          {sent ? (
+            <p className="text-center text-sm text-muted-foreground">
+              {sent === "sent"
+                ? "If that email is registered, a sign-in link is on its way. It works once and expires in 15 minutes."
+                : "Email delivery isn't configured on this server yet — the sign-in link was written to the server log."}
+            </p>
+          ) : (
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (email.trim()) request.mutate({ email: email.trim() });
+              }}
+            >
+              <Input
+                type="email"
+                required
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <Button type="submit" variant="outline" disabled={request.isPending}>
+                {request.isPending ? "Sending…" : "Email me a sign-in link"}
+              </Button>
+            </form>
+          )}
+
           <p className="text-center text-xs text-muted-foreground">
             <Link to="/privacy" className="underline underline-offset-4">
               Privacy &amp; data handling
