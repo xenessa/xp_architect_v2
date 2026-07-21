@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/providers/trpc";
+import { useAuth } from "@/hooks/useAuth";
 import { FolderPlus, Users } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -33,21 +34,46 @@ function StageBar({ stage }: { stage: string }) {
 export default function Home() {
   const navigate = useNavigate();
   const projects = trpc.projects.list.useQuery();
+  const { user } = useAuth();
+  const firstName = user?.name?.split(" ")[0];
 
   return (
     <AuthLayout>
       <div className="flex flex-col gap-6 p-6">
+        <div className="relative overflow-hidden rounded-xl">
+          <img
+            src="/blueprint-dark.jpg"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-[hsl(219_50%_10%)]/55" />
+          <div className="relative flex flex-wrap items-center justify-between gap-4 p-7">
+            <div>
+              <p className="text-sm text-white/70">
+                Welcome back{firstName ? `, ${firstName}` : ""}
+              </p>
+              <h2 className="mt-1 font-display text-2xl tracking-tight text-white xl:text-3xl">
+                What will you discover today?
+              </h2>
+              <span className="mt-3 block h-0.5 w-10 rounded-full bg-gold" />
+            </div>
+            <Button
+              className="!bg-gold !text-gold-foreground hover:!bg-gold/90"
+              onClick={() => navigate("/projects/new")}
+            >
+              <FolderPlus className="mr-2 h-4 w-4" />
+              New Project
+            </Button>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+            <h1 className="font-display text-2xl tracking-tight">Projects</h1>
             <p className="text-sm text-muted-foreground">
               Your discovery engagements at a glance.
             </p>
           </div>
-          <Button onClick={() => navigate("/projects/new")}>
-            <FolderPlus className="mr-2 h-4 w-4" />
-            New Project
-          </Button>
         </div>
 
         {projects.isLoading && (
