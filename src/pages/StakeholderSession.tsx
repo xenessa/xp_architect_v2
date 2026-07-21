@@ -573,11 +573,17 @@ export default function StakeholderSession() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{d.projectName}</h1>
-        <p className="text-sm text-muted-foreground">
-          {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">{d.projectName}</h1>
+          <p className="text-sm text-muted-foreground">
+            {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-muted-foreground" title="Powered by XP Architect">
+          <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
+          <span className="text-xs">XP Architect</span>
+        </div>
       </div>
 
       {d.state === "INVITED" && !showForm && (

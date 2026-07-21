@@ -30,7 +30,14 @@ export default function Login() {
   });
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6">
+      <div className="flex items-center gap-3">
+        <img src="/logo.png" alt="XP Architect" className="h-12 w-12 rounded-xl" />
+        <div className="flex flex-col leading-tight">
+          <span className="text-2xl font-semibold tracking-tight">XP Architect</span>
+          <span className="text-sm text-muted-foreground">by Xenessa</span>
+        </div>
+      </div>
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle>Welcome</CardTitle>

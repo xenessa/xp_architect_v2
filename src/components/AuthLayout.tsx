@@ -187,10 +187,14 @@ function AuthLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img src="/logo.png" alt="XP Architect" className="h-8 w-8 rounded shrink-0" />
+                  <div className="flex flex-col leading-tight min-w-0">
+                    <span className="font-semibold tracking-tight truncate">
+                      XP Architect
+                    </span>
+                    <span className="text-xs text-muted-foreground">by Xenessa</span>
+                  </div>
                 </div>
               ) : null}
             </div>
