@@ -286,7 +286,11 @@ function CompilationTab({ projectId }: { projectId: number }) {
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <div className="flex items-center gap-2">
             <CardTitle className="text-base">Compiler alerts</CardTitle>
-            {d.unreadCount > 0 && <Badge>{d.unreadCount} new</Badge>}
+            {d.unreadCount > 0 && (
+              <span className="inline-flex items-center rounded-full bg-gold px-2.5 py-0.5 text-xs font-semibold text-gold-foreground">
+                {d.unreadCount} new
+              </span>
+            )}
           </div>
           {d.unreadCount > 0 && (
             <Button
@@ -613,14 +617,18 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
           {b.packages.map((pkg) => (
             <Card
               key={pkg.key}
-              className={pkg.key === "SA_PM_BUNDLE" ? "border-primary" : ""}
+              className={pkg.key === "SA_PM_BUNDLE" ? "border-2 border-gold" : ""}
             >
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">
                     {pkg.key === "SA" ? "SA profile" : pkg.key === "PM" ? "PM profile" : "SA + PM bundle"}
                   </CardTitle>
-                  {pkg.key === "SA_PM_BUNDLE" && <Badge>Recommended</Badge>}
+                  {pkg.key === "SA_PM_BUNDLE" && (
+                    <span className="inline-flex items-center rounded-full bg-gold px-2.5 py-0.5 text-xs font-semibold text-gold-foreground">
+                      Recommended
+                    </span>
+                  )}
                 </div>
                 <p className="text-2xl font-semibold">
                   ${(pkg.amountCents / 100).toLocaleString()}
