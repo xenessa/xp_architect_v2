@@ -310,7 +310,7 @@ function CompilationTab({ projectId }: { projectId: number }) {
           {d.alerts.map((a) => (
             <div
               key={a.id}
-              className={`flex items-start justify-between gap-3 rounded-lg border p-3 ${a.read ? "opacity-60" : ""}`}
+              className={`flex items-start justify-between gap-3 rounded-lg border p-3 ${a.read ? "opacity-60" : "border-l-2 border-l-gold"}`}
             >
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">

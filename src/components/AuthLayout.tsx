@@ -193,7 +193,8 @@ function AuthLayoutContent({
                     <span className="font-semibold tracking-tight truncate">
                       XP Architect
                     </span>
-                    <span className="text-xs text-muted-foreground">by Xenessa</span>
+                    <span className="mt-1 h-0.5 w-9 rounded-full bg-gold" />
+                    <span className="mt-1 text-xs text-muted-foreground">by Xenessa</span>
                   </div>
                 </div>
               ) : null}

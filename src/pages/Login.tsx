@@ -35,7 +35,8 @@ export default function Login() {
         <img src="/logo.png" alt="XP Architect" className="h-12 w-12 rounded-xl" />
         <div className="flex flex-col leading-tight">
           <span className="text-2xl font-semibold tracking-tight">XP Architect</span>
-          <span className="text-sm text-muted-foreground">by Xenessa</span>
+          <span className="mt-1.5 h-0.5 w-11 rounded-full bg-gold" />
+          <span className="mt-1.5 text-sm text-muted-foreground">by Xenessa</span>
         </div>
       </div>
       <Card className="w-full max-w-sm">
