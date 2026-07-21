@@ -30,7 +30,7 @@ export default function Login() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-[linear-gradient(160deg,hsl(237_45%_95%)_0%,hsl(36_45%_96%)_45%,hsl(174_32%_94%)_100%)] dark:bg-[linear-gradient(160deg,hsl(237_18%_10%)_0%,hsl(237_14%_9%)_45%,hsl(200_16%_10%)_100%)]">
       <div className="flex items-center gap-3">
         <img src="/logo.png" alt="XP Architect" className="h-12 w-12 rounded-xl" />
         <div className="flex flex-col leading-tight">
