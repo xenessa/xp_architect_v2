@@ -21,6 +21,25 @@ function getOAuthUrl() {
   return url.toString();
 }
 
+function BrandMark({ large = false }: { large?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <img
+        src="/logo.png"
+        alt="XP Architect"
+        className={large ? "h-11 w-11 rounded-xl" : "h-9 w-9 rounded-lg"}
+      />
+      <div className="flex flex-col leading-tight">
+        <span className={`${large ? "text-xl" : "text-base"} font-semibold tracking-tight`}>
+          XP Architect
+        </span>
+        <span className="mt-1 h-0.5 w-9 rounded-full bg-gold" />
+        <span className="mt-1 text-xs text-muted-foreground">by Xenessa</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
   const [params] = useSearchParams();
   const [email, setEmail] = useState("");
@@ -30,76 +49,107 @@ export default function Login() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-[linear-gradient(160deg,hsl(217_70%_94%)_0%,hsl(45_29%_97%)_45%,hsl(177_45%_92%)_100%)] dark:bg-[linear-gradient(160deg,hsl(219_35%_11%)_0%,hsl(219_30%_9%)_45%,hsl(200_25%_10%)_100%)]">
-      <div className="flex items-center gap-3">
-        <img src="/logo.png" alt="XP Architect" className="h-12 w-12 rounded-xl" />
-        <div className="flex flex-col leading-tight">
-          <span className="text-2xl font-semibold tracking-tight">XP Architect</span>
-          <span className="mt-1.5 h-0.5 w-11 rounded-full bg-gold" />
-          <span className="mt-1.5 text-sm text-muted-foreground">by Xenessa</span>
+    <div className="min-h-screen flex bg-card">
+      {/* Editorial brand panel — desktop only */}
+      <div className="hidden lg:flex w-[54%] flex-col justify-between gap-10 overflow-hidden bg-background p-14 xl:p-20">
+        <BrandMark />
+
+        <div className="max-w-xl">
+          <h1 className="font-display text-6xl xl:text-7xl leading-[1.04] tracking-tight text-foreground">
+            Listen<span className="text-gold">.</span>
+            <br />
+            Design<span className="text-gold">.</span>
+            <br />
+            Deliver<span className="text-gold">.</span>
+          </h1>
+          <p className="mt-7 text-lg leading-relaxed text-muted-foreground">
+            AI-guided stakeholder discovery that turns every conversation into
+            implementation-ready solution design.
+          </p>
         </div>
+
+        <div className="relative -mx-6 flex-1 min-h-0">
+          <img
+            src="/login-hero.png"
+            alt=""
+            className="absolute inset-0 h-full w-full object-contain object-bottom"
+          />
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          Trusted by delivery teams running enterprise implementations.
+        </p>
       </div>
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <CardTitle>Welcome</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {params.get("error") === "magic" && (
-            <p className="text-sm text-destructive text-center">
-              That sign-in link is invalid or has expired — request a new one below.
-            </p>
-          )}
 
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={() => {
-              window.location.href = getOAuthUrl();
-            }}
-          >
-            Sign in with Kimi
-          </Button>
+      {/* Sign-in panel */}
+      <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6 bg-card">
+        <div className="lg:hidden">
+          <BrandMark large />
+        </div>
 
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            or
-            <div className="h-px flex-1 bg-border" />
-          </div>
+        <Card className="w-full max-w-sm shadow-lg border-border/60">
+          <CardHeader className="text-center pb-4">
+            <CardTitle className="font-display text-2xl font-medium">Welcome</CardTitle>
+            <p className="text-sm text-muted-foreground">Sign in to your workspace</p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {params.get("error") === "magic" && (
+              <p className="text-sm text-destructive text-center">
+                That sign-in link is invalid or has expired — request a new one below.
+              </p>
+            )}
 
-          {sent ? (
-            <p className="text-center text-sm text-muted-foreground">
-              {sent === "sent"
-                ? "If that email is registered, a sign-in link is on its way. It works once and expires in 15 minutes."
-                : "Email delivery isn't configured on this server yet — the sign-in link was written to the server log."}
-            </p>
-          ) : (
-            <form
-              className="flex flex-col gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (email.trim()) request.mutate({ email: email.trim() });
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={() => {
+                window.location.href = getOAuthUrl();
               }}
             >
-              <Input
-                type="email"
-                required
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <Button type="submit" variant="outline" disabled={request.isPending}>
-                {request.isPending ? "Sending…" : "Email me a sign-in link"}
-              </Button>
-            </form>
-          )}
+              Sign in with Kimi
+            </Button>
 
-          <p className="text-center text-xs text-muted-foreground">
-            <Link to="/privacy" className="underline underline-offset-4">
-              Privacy &amp; data handling
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              or
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            {sent ? (
+              <p className="text-center text-sm text-muted-foreground">
+                {sent === "sent"
+                  ? "If that email is registered, a sign-in link is on its way. It works once and expires in 15 minutes."
+                  : "Email delivery isn't configured on this server yet — the sign-in link was written to the server log."}
+              </p>
+            ) : (
+              <form
+                className="flex flex-col gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (email.trim()) request.mutate({ email: email.trim() });
+                }}
+              >
+                <Input
+                  type="email"
+                  required
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <Button type="submit" variant="outline" disabled={request.isPending}>
+                  {request.isPending ? "Sending…" : "Email me a sign-in link"}
+                </Button>
+              </form>
+            )}
+
+            <p className="text-center text-xs text-muted-foreground">
+              <Link to="/privacy" className="underline underline-offset-4">
+                Privacy &amp; data handling
+              </Link>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

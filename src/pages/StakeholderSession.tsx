@@ -573,16 +573,25 @@ export default function StakeholderSession() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{d.projectName}</h1>
-          <p className="text-sm text-muted-foreground">
-            {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-muted-foreground" title="Powered by XP Architect">
-          <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
-          <span className="text-xs">XP Architect</span>
+      <div className="relative overflow-hidden rounded-xl">
+        <img
+          src="/blueprint-dark.jpg"
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <div className="absolute inset-0 bg-[hsl(219_50%_10%)]/55" />
+        <div className="relative flex items-start justify-between gap-4 p-6">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-white">{d.projectName}</h1>
+            <span className="mt-1.5 block h-0.5 w-9 rounded-full bg-gold" />
+            <p className="mt-1.5 text-sm text-white/70">
+              {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-white/80" title="Powered by XP Architect">
+            <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
+            <span className="text-xs">XP Architect</span>
+          </div>
         </div>
       </div>
 

@@ -306,10 +306,17 @@ function CompilationTab({ projectId }: { projectId: number }) {
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {d.alerts.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No alerts yet. As each stakeholder completes discovery, the Compiler flags
-              contradictions, risks, scope creep, and coverage gaps here.
-            </p>
+            <div className="flex items-center gap-5 py-2">
+              <img
+                src="/empty-state.png"
+                alt=""
+                className="h-20 w-20 shrink-0 object-contain opacity-90"
+              />
+              <p className="text-sm text-muted-foreground">
+                No alerts yet. As each stakeholder completes discovery, the Compiler flags
+                contradictions, risks, scope creep, and coverage gaps here.
+              </p>
+            </div>
           )}
           {d.alerts.map((a) => (
             <div

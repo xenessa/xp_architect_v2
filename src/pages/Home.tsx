@@ -64,11 +64,14 @@ export default function Home() {
 
         {projects.data?.length === 0 && (
           <Card className="border-dashed">
-            <CardHeader>
-              <CardTitle className="text-base">No projects yet</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
+            <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
+              <img
+                src="/empty-state.png"
+                alt=""
+                className="h-36 w-36 object-contain opacity-90"
+              />
+              <p className="font-display text-xl">No projects yet</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
                 Create your first project to define scope, invite stakeholders,
                 and start AI-powered discovery.
               </p>
