@@ -8,6 +8,21 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { trpc } from "@/providers/trpc";
 import { useParams, useSearchParams } from "react-router";
 import {
@@ -153,14 +168,33 @@ function StakeholderRow({
     utils.stakeholders.progress.invalidate({ projectId });
     utils.projects.get.invalidate({ id: projectId });
   };
-  const resend = trpc.stakeholders.resendInvite.useMutation({ onSuccess: invalidate });
-  const regenerate = trpc.stakeholders.regenerateInvite.useMutation({ onSuccess: invalidate });
-  const remove = trpc.stakeholders.remove.useMutation({ onSuccess: invalidate });
+  const resend = trpc.stakeholders.resendInvite.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success(`Invite email resent to ${row.stakeholder.email}`);
+    },
+    onError: (e) => toast.error(`Couldn't resend the invite: ${e.message}`),
+  });
+  const regenerate = trpc.stakeholders.regenerateInvite.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("New invite link generated — fresh 30-day expiry");
+    },
+    onError: (e) => toast.error(`Couldn't regenerate the link: ${e.message}`),
+  });
+  const remove = trpc.stakeholders.remove.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success(`${row.stakeholder.name} removed from the project`);
+    },
+    onError: (e) => toast.error(`Couldn't remove the stakeholder: ${e.message}`),
+  });
 
   const inviteUrl = `${window.location.origin}/s/${row.stakeholder.inviteToken}`;
   const copy = async () => {
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
+    toast.success("Invite link copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -215,14 +249,31 @@ function StakeholderRow({
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           Regenerate
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => remove.mutate({ id: row.stakeholder.id })}
-          disabled={remove.isPending}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button size="sm" variant="ghost" disabled={remove.isPending}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove {row.stakeholder.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This deletes their invite and any session data they've provided —
+                assessment, interview answers, and summaries. It can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep stakeholder</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => remove.mutate({ id: row.stakeholder.id })}
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
@@ -257,17 +308,38 @@ function CompilationTab({ projectId }: { projectId: number }) {
     if (job.status === "done") {
       setCompiling(false);
       invalidate();
+      toast.success("Compilation complete — the compiled dataset is ready");
     } else if (job.status === "failed") {
       setCompiling(false);
       setJobError(job.error ?? "Compilation failed — please try again.");
+      toast.error("Compilation failed — please try again");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compiling, job?.status]);
   const markRead = trpc.compiler.markAlertRead.useMutation({ onSuccess: invalidate });
-  const markAll = trpc.compiler.markAllAlertsRead.useMutation({ onSuccess: invalidate });
+  const markAll = trpc.compiler.markAllAlertsRead.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("All alerts marked read");
+    },
+  });
 
   if (comp.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading compilation…</p>;
+    return (
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton className="h-16 w-full rounded-lg" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-56" /></CardHeader>
+          <CardContent><Skeleton className="h-24 w-full rounded-lg" /></CardContent>
+        </Card>
+      </div>
+    );
   }
   if (!comp.data) {
     return (
@@ -549,9 +621,22 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   });
   // Invalidate on success AND on failure: if the platform cut the response
   // but the server finished generating, a refetch reveals the new version.
-  const generate = trpc.team.generate.useMutation({ onSettled: invalidate });
-  const updateStatus = trpc.team.updateStatus.useMutation({ onSuccess: invalidate });
-  const submitFeedback = trpc.team.submitFeedback.useMutation({ onSuccess: invalidate });
+  const generate = trpc.team.generate.useMutation({
+    onSettled: invalidate,
+    onSuccess: () => toast.success("Draft generated from the compiled dataset"),
+  });
+  const updateStatus = trpc.team.updateStatus.useMutation({
+    onSuccess: (_res, vars) => {
+      invalidate();
+      toast.success(vars.status === "approved" ? "Deliverable approved" : "Moved to review");
+    },
+  });
+  const submitFeedback = trpc.team.submitFeedback.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("New version generated with your feedback");
+    },
+  });
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({});
 
   const [downloading, setDownloading] = useState<number | null>(null);
@@ -569,13 +654,27 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
       a.download = res.filename;
       a.click();
       URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Couldn't prepare the .docx — please try again");
     } finally {
       setDownloading(null);
     }
   };
 
   if (data.isLoading || billing.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading deliverables…</p>;
+    return (
+      <div className="flex flex-col gap-6">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <CardHeader><Skeleton className="h-5 w-64" /></CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-28 w-full rounded-lg" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
   }
   if (!data.data || !billing.data) {
     return (
@@ -785,19 +884,23 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
               )}
               {doc && (
                 <>
-                  <div className="max-h-96 overflow-y-auto rounded-lg border bg-muted/30 p-4">
-                    <pre className="whitespace-pre-wrap font-sans text-sm">
-                      {doc.contentMd}
-                    </pre>
+                  <div className="max-h-96 overflow-y-auto rounded-lg border bg-card p-5">
+                    <div className="doc-prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {doc.contentMd}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                   {doc.crossRoleNotesMd && (
                     <div className="rounded-lg border border-primary/30 p-4">
                       <p className="mb-1 text-sm font-medium">
                         Cross-referencing layer
                       </p>
-                      <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
-                        {doc.crossRoleNotesMd}
-                      </pre>
+                      <div className="doc-prose">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {doc.crossRoleNotesMd}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   )}
                   <div className="flex flex-col gap-2 rounded-lg border p-4">
@@ -858,7 +961,15 @@ export default function ProjectDetail() {
   if (project.isLoading) {
     return (
       <AuthLayout>
-        <p className="p-6 text-sm text-muted-foreground">Loading project…</p>
+        <div className="flex flex-col gap-6 p-6">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <Skeleton className="h-9 w-96 rounded-lg" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
       </AuthLayout>
     );
   }

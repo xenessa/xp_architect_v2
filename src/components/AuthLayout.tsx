@@ -22,6 +22,7 @@ import {
 import { LOGIN_PATH } from "@/const";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, LogOut, PanelLeft } from "lucide-react";
+import { ThemeToggle } from "./ThemeToggle";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
@@ -187,15 +188,16 @@ function AuthLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex flex-1 items-center gap-2.5 min-w-0">
                   <img src="/logo.png" alt="XP Architect" className="h-8 w-8 rounded shrink-0" />
-                  <div className="flex flex-col leading-tight min-w-0">
+                  <div className="flex flex-1 flex-col leading-tight min-w-0">
                     <span className="font-semibold tracking-tight truncate">
                       XP Architect
                     </span>
                     <span className="mt-1 h-0.5 w-9 rounded-full bg-gold" />
                     <span className="mt-1 text-xs text-muted-foreground">by Xenessa</span>
                   </div>
+                  <ThemeToggle className="shrink-0 text-muted-foreground" />
                 </div>
               ) : null}
             </div>

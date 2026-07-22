@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
-import { FolderPlus, Users } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatDistanceToNow } from "date-fns";
+import { AlertTriangle, FolderPlus, Users } from "lucide-react";
 import { useNavigate } from "react-router";
 
 const STAGES = ["SETUP", "DISCOVERY_OPEN", "COMPILATION_READY", "DELIVERABLES"] as const;
@@ -77,7 +79,25 @@ export default function Home() {
         </div>
 
         {projects.isLoading && (
-          <p className="text-sm text-muted-foreground">Loading projects…</p>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <Card key={i}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <Skeleton className="h-1.5 w-full rounded-full" />
+                  <Skeleton className="h-4 w-44" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         )}
 
         {projects.error && (
@@ -120,17 +140,35 @@ export default function Home() {
                       <p className="text-sm text-muted-foreground">{p.clientName}</p>
                     )}
                   </div>
-                  <Badge variant="secondary">{STAGE_LABELS[p.rollup.stage]}</Badge>
+                  <div className="flex items-center gap-1.5">
+                    {p.rollup.unreadAlertCount > 0 && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-gold px-2 py-0.5 text-xs font-semibold text-gold-foreground"
+                        title={`${p.rollup.unreadAlertCount} unread compiler alert(s)`}
+                      >
+                        <AlertTriangle className="h-3 w-3" />
+                        {p.rollup.unreadAlertCount}
+                      </span>
+                    )}
+                    <Badge variant="secondary">{STAGE_LABELS[p.rollup.stage]}</Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <StageBar stage={p.rollup.stage} />
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Users className="h-4 w-4" />
-                  <span>
+                <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
                     {p.rollup.completedCount}/{p.rollup.stakeholderCount} stakeholders
                     complete
                   </span>
+                  {p.rollup.lastActivityAt && (
+                    <span className="text-xs">
+                      {formatDistanceToNow(new Date(p.rollup.lastActivityAt), {
+                        addSuffix: true,
+                      })}
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>

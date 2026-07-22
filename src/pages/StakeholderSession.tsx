@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
 import { useParams } from "react-router";
 import { CheckCircle2, Flag, Send } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type StyleKey = "detail_oriented" | "big_picture" | "story_narrative" | "problem_solving";
 type Msg = { id: number; stage: string; phase: number | null; role: string; content: string };
@@ -588,9 +589,12 @@ export default function StakeholderSession() {
               {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-white/80" title="Powered by XP Architect">
-            <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
-            <span className="text-xs">XP Architect</span>
+          <div className="flex shrink-0 items-center gap-2 pt-0.5 text-white/80">
+            <span className="flex items-center gap-1.5" title="Powered by XP Architect">
+              <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
+              <span className="text-xs">XP Architect</span>
+            </span>
+            <ThemeToggle className="text-white/80 hover:bg-white/10" />
           </div>
         </div>
       </div>
