@@ -218,6 +218,26 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Optimistic echo (launch feedback): the stakeholder's message renders the
+  // instant they hit send — the server round trip happens behind it. The echo
+  // clears when the refetched server state contains the real row, and the
+  // thinking indicator stays up for that whole window, so there is never a
+  // moment where the chat looks idle while work is in flight.
+  const [echo, setEcho] = useState<string | null>(null);
+  const serverCountRef = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > serverCountRef.current) setEcho(null);
+    serverCountRef.current = messages.length;
+  }, [messages.length]);
+  // Failsafe: if the refetch itself dies, don't leave the chat thinking
+  // forever — release the echo so the error/retry path is visible.
+  useEffect(() => {
+    if (echo === null) return;
+    const t = setTimeout(() => setEcho(null), 60_000);
+    return () => clearTimeout(t);
+  }, [echo]);
+  // Waiting covers the mutation AND the state refetch that follows it.
+  const waiting = isPending || echo !== null;
   // Messages present at mount render instantly; only replies that arrive
   // during this visit get the type-on reveal.
   const initialIds = useRef<Set<number> | null>(null);
@@ -242,7 +262,7 @@ function ChatPanel({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, isPending]);
+  }, [messages.length, isPending, echo]);
 
   const [savedCue, setSavedCue] = useState(false);
   const prevCount = useRef(messages.length);
@@ -259,12 +279,14 @@ function ChatPanel({
 
   const send = () => {
     const text = draft.trim();
-    if (!text || isPending) return;
+    if (!text || waiting) return;
     if (speech.listening) speech.stop();
     committedRef.current = "";
     setDraft("");
+    setEcho(text);
     onSend(text, (ok) => {
       if (!ok) {
+        setEcho(null);
         committedRef.current = text;
         setDraft(text); // keep the user's words when a send fails
       }
@@ -296,7 +318,12 @@ function ChatPanel({
             </div>
           ),
         )}
-        {isPending && (
+        {echo !== null && (
+          <div className="max-w-[85%] self-end whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
+            {echo}
+          </div>
+        )}
+        {waiting && (
           <div className="flex max-w-[85%] items-end gap-2 self-start">
             <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-primary/10">
               <InterviewerMark className="h-4 w-4" />
@@ -360,7 +387,7 @@ function ChatPanel({
             {speech.listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
         )}
-        <Button onClick={send} disabled={!draft.trim() || isPending}>
+        <Button onClick={send} disabled={!draft.trim() || waiting}>
           <Send className="h-4 w-4" />
         </Button>
       </div>
