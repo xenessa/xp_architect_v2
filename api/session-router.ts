@@ -151,6 +151,10 @@ export const sessionRouter = createRouter({
     return {
       projectName: project.name,
       clientName: project.clientName,
+      // The scope boundary, shown on the welcome screen so stakeholders know
+      // what discovery is exploring before they begin. Constraints, budget,
+      // and logistics stay lead-only.
+      projectScope: project.scopeText,
       inviterName: owner?.name ?? "Your project lead",
       stakeholder: { name: stakeholder.name, roleTitle: stakeholder.roleTitle },
       state: session.state,

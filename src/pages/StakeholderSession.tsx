@@ -894,6 +894,21 @@ export default function StakeholderSession() {
               It takes about 60–90 minutes total, broken into stages you can
               complete at your own pace. Your progress is saved automatically.
             </p>
+            {d.projectScope && (
+              <div className="rounded-lg border border-l-[3px] border-l-gold bg-muted/40 p-4">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  What this discovery is exploring
+                </p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                  {d.projectScope}
+                </p>
+                <p className="mt-2.5 text-xs text-muted-foreground">
+                  If something matters to you that sits outside this scope, say it
+                  anyway — it's recorded and flagged for the project team, never
+                  lost.
+                </p>
+              </div>
+            )}
             <StageCards />
             {start.error && <p className="text-sm text-destructive">{start.error.message}</p>}
             <div className="flex items-center gap-3">
