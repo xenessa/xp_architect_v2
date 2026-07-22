@@ -35,7 +35,46 @@ import {
 
 const tokenInput = z.object({ token: z.string().min(10) });
 
+/**
+ * Sliding-window rate limits per invite token (build doc §7: token
+ * procedures are rate-limited). The invite URL is the stakeholder's only
+ * credential — a leaked link must not allow unbounded LLM spend.
+ * Two tiers: a transport-level ceiling on all token procedures, and a
+ * tighter budget on the procedures that trigger model calls.
+ * Per-instance memory, mirroring the magic-link limiter in auth-magic.ts.
+ */
+const RATE_WINDOW_MS = 5 * 60 * 1000;
+const RATE_LIMITS = { general: 240, llm: 40 } as const;
+const rateLog = new Map<string, number[]>();
+
+export function enforceTokenRateLimit(
+  token: string,
+  kind: keyof typeof RATE_LIMITS = "general",
+) {
+  const now = Date.now();
+  const key = `${kind}:${token}`;
+  const recent = (rateLog.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (recent.length >= RATE_LIMITS[kind]) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message:
+        kind === "llm"
+          ? "That's a lot of messages in a short time — take a short break and continue in a few minutes. Your progress is saved."
+          : "Too many requests — please wait a moment and try again.",
+    });
+  }
+  recent.push(now);
+  rateLog.set(key, recent);
+  // Bound memory: sweep dead entries once the map grows past a few thousand.
+  if (rateLog.size > 5000) {
+    for (const [k, v] of rateLog) {
+      if (v.every((t) => now - t >= RATE_WINDOW_MS)) rateLog.delete(k);
+    }
+  }
+}
+
 async function requireSessionByToken(token: string) {
+  enforceTokenRateLimit(token);
   const db = getDb();
   const [stakeholder] = await db
     .select()
@@ -141,6 +180,7 @@ export const sessionRouter = createRouter({
   discoveryReply: publicQuery
     .input(tokenInput.extend({ message: z.string().min(1).max(4000) }))
     .mutation(async ({ input }) => {
+      enforceTokenRateLimit(input.token, "llm");
       const ctx = await requireSessionByToken(input.token);
       return discoveryReply(ctx, input.message);
     }),
@@ -149,6 +189,7 @@ export const sessionRouter = createRouter({
   approvePhaseSummary: publicQuery
     .input(tokenInput.extend({ feedback: z.string().max(2000).optional() }))
     .mutation(async ({ input }) => {
+      enforceTokenRateLimit(input.token, "llm");
       const ctx = await requireSessionByToken(input.token);
       return approvePhaseSummary(ctx, input.feedback);
     }),
@@ -187,6 +228,7 @@ export const sessionRouter = createRouter({
   reply: publicQuery
     .input(tokenInput.extend({ message: z.string().min(1).max(4000) }))
     .mutation(async ({ input }) => {
+      enforceTokenRateLimit(input.token, "llm");
       const ctx = await requireSessionByToken(input.token);
       if (ctx.session.state !== "ASSESSMENT_IN_PROGRESS") {
         throw new TRPCError({

@@ -11,6 +11,8 @@ import { createOAuthCallbackHandler } from "./kimi/auth";
 import { signSessionToken } from "./kimi/session";
 import { findUserByUnionId } from "./queries/users";
 import { consumeMagicToken } from "./auth-magic";
+import { runNudgeSweepAll } from "./nudges";
+import { publicOrigin } from "./origin";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { getSessionCookieOptions } from "./lib/cookies";
 import { Paths, Session } from "@contracts/constants";
@@ -60,6 +62,28 @@ if (process.env.OWNER_LOGIN_KEY) {
     });
     console.log(`[owner-login] owner ${user.unionId} signed in via OWNER_LOGIN_KEY`);
     return c.redirect("/", 302);
+  });
+}
+
+/* Scheduled-job entry point: POST /api/jobs/nudge-sweep with the job key.  */
+/* The build doc specifies an hourly nudge sweep (§6.1); this environment   */
+/* has no in-process scheduler, so an external cron (platform scheduler or  */
+/* an uptime pinger) calls this hourly. Enabled only when JOB_RUNNER_KEY    */
+/* is set; the lazy per-project sweep on dashboard reads remains as backup. */
+if (process.env.JOB_RUNNER_KEY) {
+  const expectedJobKey = Buffer.from(process.env.JOB_RUNNER_KEY);
+  // GET + POST: uptime pingers speak GET; schedulers usually POST.
+  app.on(["GET", "POST"], "/api/jobs/nudge-sweep", async (c) => {
+    const provided = Buffer.from(
+      c.req.header("x-job-key") ?? c.req.query("key") ?? "",
+    );
+    const ok =
+      provided.length === expectedJobKey.length &&
+      timingSafeEqual(provided, expectedJobKey);
+    if (!ok) return c.json({ error: "Invalid job key" }, 401);
+    const result = await runNudgeSweepAll(publicOrigin(c.req.raw));
+    console.log(`[nudges] scheduled sweep: ${result.sent} nudge(s) across ${result.projects} project(s)`);
+    return c.json({ ok: true, ...result });
   });
 }
 

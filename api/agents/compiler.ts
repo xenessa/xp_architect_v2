@@ -2,6 +2,7 @@ import { z } from "zod";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../queries/connection";
+import { sendEmail, alertEmailHtml } from "../mailer";
 import { llm, gatewayMode } from "./llm";
 import {
   alertPassPrompt,
@@ -17,6 +18,7 @@ import {
   compilerAlerts,
   compiledReports,
   type Project,
+  users,
 } from "@db/schema";
 
 /**
@@ -133,7 +135,7 @@ async function completedSessionIds(projectId: number): Promise<number[]> {
 }
 
 /** Incremental pass — runs (fire-and-forget) after a session reaches COMPLETED. */
-export async function runIncrementalAlertPass(sessionId: number): Promise<void> {
+export async function runIncrementalAlertPass(sessionId: number, origin?: string): Promise<void> {
   const db = getDb();
   const [session] = await db
     .select()
@@ -223,6 +225,36 @@ export async function runIncrementalAlertPass(sessionId: number): Promise<void> 
       severity: a.severity,
       message: a.message,
     });
+  }
+
+  // High-severity findings shouldn't wait for a dashboard visit — email the
+  // lead immediately (Wave 3). Low/medium alerts stay dashboard-only.
+  // Logged under type "milestone" to avoid an email_logs enum migration.
+  const high = alerts.filter((a) => a.severity === "high");
+  if (high.length > 0 && origin) {
+    try {
+      const [owner] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, project.ownerId))
+        .limit(1);
+      if (owner?.email) {
+        await sendEmail({
+          to: owner.email,
+          subject: `⚠ High-severity alert — ${project.name}`,
+          html: alertEmailHtml({
+            leadName: owner.name ?? "there",
+            projectName: project.name,
+            alerts: high,
+            projectUrl: `${origin}/projects/${project.id}`,
+          }),
+          type: "milestone",
+          projectId: project.id,
+        });
+      }
+    } catch (err) {
+      console.warn("[compiler] high-severity alert email failed:", err);
+    }
   }
 }
 

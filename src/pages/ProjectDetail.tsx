@@ -24,6 +24,8 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Monogram, ReadinessGauge } from "@/components/ProjectVisuals";
+import { ProjectSettings } from "@/components/ProjectSettings";
+import { TranscriptSheet } from "@/components/TranscriptSheet";
 import {
   AllClear,
   AwaitingCompilation,
@@ -41,6 +43,7 @@ import {
   FileText,
   Lock,
   Mail,
+  BookOpen,
   RefreshCw,
   Trash2,
   UserPlus,
@@ -1023,6 +1026,7 @@ export default function ProjectDetail() {
   const projectId = Number(id);
   const project = trpc.projects.get.useQuery({ id: projectId });
   const progress = trpc.stakeholders.progress.useQuery({ projectId });
+  const [transcriptFor, setTranscriptFor] = useState<number | null>(null);
 
   if (project.isLoading) {
     return (
@@ -1110,6 +1114,8 @@ export default function ProjectDetail() {
                 <StakeholderRow key={row.stakeholder.id} projectId={projectId} row={row} />
               ))}
             </div>
+
+            <ProjectSettings project={p} />
           </TabsContent>
 
           <TabsContent value="discovery" className="mt-4">
@@ -1145,14 +1151,30 @@ export default function ProjectDetail() {
                         {row.stakeholder.roleTitle}
                       </p>
                     </div>
-                    <div className="flex flex-col gap-0.5 text-sm text-muted-foreground md:items-end">
-                      <span>
-                        Last activity:{" "}
-                        {row.stakeholder.lastActivityAt
-                          ? new Date(row.stakeholder.lastActivityAt).toLocaleDateString()
-                          : "—"}
-                      </span>
-                      <span>Nudges sent: {row.stakeholder.nudgeCount}/3</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col gap-0.5 text-sm text-muted-foreground md:items-end">
+                        <span>
+                          Last activity:{" "}
+                          {row.stakeholder.lastActivityAt
+                            ? new Date(row.stakeholder.lastActivityAt).toLocaleDateString()
+                            : "—"}
+                        </span>
+                        <span>Nudges sent: {row.stakeholder.nudgeCount}/3</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!row.session}
+                        title={
+                          row.session
+                            ? "Read this stakeholder's summaries, flags, and full transcript"
+                            : "Nothing to read until they open their invite"
+                        }
+                        onClick={() => setTranscriptFor(row.stakeholder.id)}
+                      >
+                        <BookOpen className="mr-1.5 h-3.5 w-3.5" />
+                        View session
+                      </Button>
                     </div>
                   </div>
                 );
@@ -1166,6 +1188,11 @@ export default function ProjectDetail() {
             <DeliverablesTab projectId={projectId} />
           </TabsContent>
         </Tabs>
+
+        <TranscriptSheet
+          stakeholderId={transcriptFor}
+          onClose={() => setTranscriptFor(null)}
+        />
       </div>
     </AuthLayout>
   );

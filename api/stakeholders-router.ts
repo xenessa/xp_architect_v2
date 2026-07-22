@@ -212,4 +212,110 @@ export const stakeholdersRouter = createRouter({
         }),
       );
     }),
+
+  /**
+   * Full session drill-down for the project lead (§10.2: "drill-down to
+   * read session transcripts/summaries"). Ownership-checked; returns the
+   * assessment profile, phase summaries, Scope Guardian flags, and the
+   * complete conversation for one stakeholder.
+   */
+  transcript: authedQuery
+    .input(z.object({ stakeholderId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const [stakeholder] = await db
+        .select()
+        .from(stakeholders)
+        .where(eq(stakeholders.id, input.stakeholderId))
+        .limit(1);
+      if (!stakeholder) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Stakeholder not found" });
+      }
+      await assertProjectOwner(stakeholder.projectId, ctx.user.id);
+
+      const [session] = await db
+        .select()
+        .from(stakeholderSessions)
+        .where(eq(stakeholderSessions.stakeholderId, stakeholder.id))
+        .limit(1);
+
+      if (!session) {
+        return {
+          stakeholder: {
+            name: stakeholder.name,
+            roleTitle: stakeholder.roleTitle,
+            email: stakeholder.email,
+          },
+          session: null,
+          assessment: null,
+          summaries: [],
+          flags: [],
+          messages: [],
+        };
+      }
+
+      const [assessment] = await db
+        .select()
+        .from(assessmentResults)
+        .where(eq(assessmentResults.sessionId, session.id))
+        .limit(1);
+      const summaries = await db
+        .select()
+        .from(phaseSummaries)
+        .where(eq(phaseSummaries.sessionId, session.id))
+        .orderBy(asc(phaseSummaries.phase));
+      const flags = await db
+        .select()
+        .from(discoveryFlags)
+        .where(eq(discoveryFlags.sessionId, session.id))
+        .orderBy(asc(discoveryFlags.createdAt));
+      const messages = await db
+        .select()
+        .from(conversationMessages)
+        .where(eq(conversationMessages.sessionId, session.id))
+        .orderBy(asc(conversationMessages.createdAt), asc(conversationMessages.id));
+
+      return {
+        stakeholder: {
+          name: stakeholder.name,
+          roleTitle: stakeholder.roleTitle,
+          email: stakeholder.email,
+        },
+        session: {
+          state: session.state,
+          currentPhase: session.currentPhase,
+          startedAt: session.startedAt,
+          completedAt: session.completedAt,
+        },
+        assessment: assessment
+          ? {
+              primaryStyle: assessment.primaryStyle,
+              secondaryStyle: assessment.secondaryStyle,
+              confidence: assessment.confidence,
+              method: assessment.method,
+            }
+          : null,
+        summaries: summaries.map((x) => ({
+          phase: x.phase,
+          summary: x.summary,
+          approved: x.approved,
+          stakeholderFeedback: x.stakeholderFeedback,
+        })),
+        flags: flags.map((f) => ({
+          phase: f.phase,
+          type: f.type,
+          severity: f.severity,
+          text: f.text,
+          status: f.status,
+        })),
+        messages: messages.map((m) => ({
+          id: m.id,
+          stage: m.stage,
+          phase: m.phase,
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt,
+        })),
+      };
+    }),
 });

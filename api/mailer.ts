@@ -175,3 +175,26 @@ export function milestoneEmailHtml(params: {
       </p>
     </div>`;
 }
+
+export function alertEmailHtml(params: {
+  leadName: string;
+  projectName: string;
+  alerts: { severity: string; type: string; message: string }[];
+  projectUrl: string;
+}): string {
+  const rows = params.alerts
+    .map(
+      (a) =>
+        `<li style="margin-bottom:8px"><strong style="text-transform:uppercase;font-size:12px">${a.severity} · ${a.type.replace(/_/g, " ")}</strong><br/>${a.message}</li>`,
+    )
+    .join("");
+  return `
+  <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+    <h2 style="color:#0b4fbc">High-severity discovery alert</h2>
+    <p>Hi ${params.leadName},</p>
+    <p>The Compiler flagged the following on <strong>${params.projectName}</strong> after the latest completed session:</p>
+    <ul style="padding-left:18px">${rows}</ul>
+    <p><a href="${params.projectUrl}?tab=compilation" style="background:#0b4fbc;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Review in XP Architect</a></p>
+    <p style="color:#888;font-size:12px">You receive alert emails only for high-severity findings. Lower-severity alerts wait for you on the dashboard.</p>
+  </div>`;
+}

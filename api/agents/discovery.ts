@@ -526,7 +526,7 @@ export async function submitFinal(ctx: Ctx, origin?: string) {
   })();
 
   // Incremental compiler alert pass (§6.4) — fire-and-forget.
-  void runIncrementalAlertPass(session.id).catch((err) =>
+  void runIncrementalAlertPass(session.id, origin).catch((err) =>
     console.warn("[compiler] alert pass failed:", err),
   );
 
