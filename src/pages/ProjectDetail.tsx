@@ -23,6 +23,13 @@ import {
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Monogram, ReadinessGauge } from "@/components/ProjectVisuals";
+import {
+  AllClear,
+  AwaitingCompilation,
+  EmptyRoster,
+  SealedDeliverable,
+} from "@/components/illustrations/blueprint";
 import { trpc } from "@/providers/trpc";
 import { useParams, useSearchParams } from "react-router";
 import {
@@ -379,11 +386,7 @@ function CompilationTab({ projectId }: { projectId: number }) {
         <CardContent className="flex flex-col gap-2">
           {d.alerts.length === 0 && (
             <div className="flex items-center gap-5 py-2">
-              <img
-                src="/empty-state.png"
-                alt=""
-                className="h-20 w-20 shrink-0 object-contain opacity-90"
-              />
+              <AllClear className="h-20 w-28 shrink-0" title="Calm skyline — all clear" />
               <p className="text-sm text-muted-foreground">
                 No alerts yet. As each stakeholder completes discovery, the Compiler flags
                 contradictions, risks, scope creep, and coverage gaps here.
@@ -450,11 +453,17 @@ function CompilationTab({ projectId }: { projectId: number }) {
           {jobError && <p className="text-sm text-destructive">{jobError}</p>}
           {run.error && <p className="text-sm text-destructive">{run.error.message}</p>}
           {!dataset && (
-            <p className="text-sm text-muted-foreground">
-              {d.completedCount === 0
-                ? "The Compiler runs once at least one stakeholder has completed discovery. It consolidates contradictions, patterns, out-of-scope themes, and coverage gaps into the dataset your deliverables are built from."
-                : "Ready when you are — run the Compiler to consolidate completed sessions. You can re-run it as more stakeholders finish; each run is versioned."}
-            </p>
+            <div className="flex items-center gap-5 py-2">
+              <AwaitingCompilation
+                className="h-24 w-32 shrink-0"
+                title="Scattered pages converging"
+              />
+              <p className="text-sm text-muted-foreground">
+                {d.completedCount === 0
+                  ? "The Compiler runs once at least one stakeholder has completed discovery. It consolidates contradictions, patterns, out-of-scope themes, and coverage gaps into the dataset your deliverables are built from."
+                  : "Ready when you are — run the Compiler to consolidate completed sessions. You can re-run it as more stakeholders finish; each run is versioned."}
+              </p>
+            </div>
           )}
           {dataset && (
             <>
@@ -464,20 +473,31 @@ function CompilationTab({ projectId }: { projectId: number }) {
                   still outstanding. Re-run after they finish for full coverage.
                 </p>
               )}
-              <div className="flex items-center gap-3">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-primary text-lg font-semibold">
-                  {dataset.readiness_score}
+              <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+                <ReadinessGauge score={dataset.readiness_score} />
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    {(
+                      [
+                        ["Contradictions", dataset.contradictions.length],
+                        ["Patterns", dataset.patterns.length],
+                        ["Out-of-scope", dataset.out_of_scope_ranked.length],
+                        ["Coverage gaps", dataset.coverage_gaps.length],
+                      ] as const
+                    ).map(([label, count]) => (
+                      <div key={label} className="rounded-xl border bg-background px-3.5 py-3">
+                        <p className="font-display text-2xl leading-tight">{count}</p>
+                        <p className="text-[11.5px] text-muted-foreground">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="mb-1 text-sm font-medium">Executive summary</p>
+                    <p className="text-sm text-muted-foreground">
+                      {dataset.executive_summary}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">Readiness score</p>
-                  <p className="text-sm text-muted-foreground">
-                    Coverage and coherence of this dataset for deliverable generation.
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-sm font-medium">Executive summary</p>
-                <p className="text-sm text-muted-foreground">{dataset.executive_summary}</p>
               </div>
               <Separator />
               <div className="grid gap-5 md:grid-cols-2">
@@ -489,17 +509,43 @@ function CompilationTab({ projectId }: { projectId: number }) {
                     <p className="text-sm text-muted-foreground">None detected.</p>
                   )}
                   {dataset.contradictions.map((c, i) => (
-                    <div key={i} className="rounded-lg border p-3 text-sm">
-                      <div className="mb-1 flex items-center gap-2">
+                    <div
+                      key={i}
+                      className={`rounded-lg border border-l-[3px] p-3 text-sm ${
+                        c.severity === "high"
+                          ? "border-l-destructive"
+                          : c.severity === "medium"
+                            ? "border-l-gold"
+                            : "border-l-border"
+                      }`}
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="font-medium">{c.topic}</p>
                         <SeverityBadge severity={c.severity} />
                       </div>
-                      {c.positions.map((pos, j) => (
-                        <p key={j} className="text-muted-foreground">
-                          <span className="font-medium text-foreground">{pos.stakeholder}:</span>{" "}
-                          {pos.claim}
-                        </p>
-                      ))}
+                      <div className="flex flex-col gap-2">
+                        {c.positions.map((pos, j) => (
+                          <div key={j} className="rounded-md border bg-card p-2.5">
+                            <div className="mb-1 flex items-center gap-2">
+                              <Monogram
+                                name={pos.stakeholder}
+                                className="h-6 w-6 rounded-md text-[10px]"
+                              />
+                              <span className="text-[12.5px] font-medium">
+                                {pos.stakeholder}
+                              </span>
+                              {j > 0 && (
+                                <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-destructive">
+                                  vs
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[12.5px] text-muted-foreground">
+                              “{pos.claim}”
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -559,11 +605,25 @@ function CompilationTab({ projectId }: { projectId: number }) {
               <Separator />
               <div>
                 <p className="mb-2 text-sm font-medium">Stakeholder coverage</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2.5">
                   {dataset.stakeholder_coverage.map((s, i) => (
-                    <Badge key={i} variant="secondary">
-                      {s.name} · {s.phases_covered}/4 phases
-                    </Badge>
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="flex w-40 flex-none items-center gap-2 truncate text-[12.5px]">
+                        <Monogram name={s.name} className="h-6 w-6 rounded-md text-[10px]" />
+                        <span className="truncate" title={`${s.name} · ${s.role_title}`}>
+                          {s.name}
+                        </span>
+                      </span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="block h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${(s.phases_covered / 4) * 100}%` }}
+                        />
+                      </div>
+                      <span className="w-[74px] flex-none whitespace-nowrap text-right text-[11.5px] text-muted-foreground">
+                        {s.phases_covered}/4 phases
+                      </span>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -854,11 +914,17 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
             <CardContent className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{tpl.description}</p>
               {!unlocked && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Lock className="h-4 w-4" />
-                  Locked — purchase the {tpl.profile} profile (or the bundle) to unlock
-                  generation.
-                </p>
+                <div className="flex items-center gap-4">
+                  <SealedDeliverable
+                    className="h-16 w-[88px] shrink-0"
+                    title="Sealed blueprint"
+                  />
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Lock className="h-4 w-4" />
+                    Locked — purchase the {tpl.profile} profile (or the bundle) to unlock
+                    generation.
+                  </p>
+                </div>
               )}
               {unlocked && d.compiledReportVersion === null && (
                 <p className="text-sm text-muted-foreground">
@@ -1032,10 +1098,13 @@ export default function ProjectDetail() {
               <h2 className="text-lg font-medium">Stakeholders</h2>
               <AddStakeholderForm projectId={projectId} />
               {progress.data?.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No stakeholders yet — add your first one above. Their invite email
-                  goes out automatically.
-                </p>
+                <div className="flex items-center gap-5 rounded-lg border border-dashed p-5">
+                  <EmptyRoster className="h-20 w-28 shrink-0" title="Empty seats at the table" />
+                  <p className="text-sm text-muted-foreground">
+                    No stakeholders yet — add your first one above. Their invite email
+                    goes out automatically.
+                  </p>
+                </div>
               )}
               {progress.data?.map((row) => (
                 <StakeholderRow key={row.stakeholder.id} projectId={projectId} row={row} />
