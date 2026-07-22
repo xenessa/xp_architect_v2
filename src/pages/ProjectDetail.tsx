@@ -8,6 +8,30 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Monogram, ReadinessGauge } from "@/components/ProjectVisuals";
+import { ProjectSettings } from "@/components/ProjectSettings";
+import { TranscriptSheet } from "@/components/TranscriptSheet";
+import {
+  AllClear,
+  AwaitingCompilation,
+  EmptyRoster,
+  SealedDeliverable,
+} from "@/components/illustrations/blueprint";
 import { trpc } from "@/providers/trpc";
 import { useParams, useSearchParams } from "react-router";
 import {
@@ -19,6 +43,7 @@ import {
   FileText,
   Lock,
   Mail,
+  BookOpen,
   RefreshCw,
   Trash2,
   UserPlus,
@@ -153,14 +178,33 @@ function StakeholderRow({
     utils.stakeholders.progress.invalidate({ projectId });
     utils.projects.get.invalidate({ id: projectId });
   };
-  const resend = trpc.stakeholders.resendInvite.useMutation({ onSuccess: invalidate });
-  const regenerate = trpc.stakeholders.regenerateInvite.useMutation({ onSuccess: invalidate });
-  const remove = trpc.stakeholders.remove.useMutation({ onSuccess: invalidate });
+  const resend = trpc.stakeholders.resendInvite.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success(`Invite email resent to ${row.stakeholder.email}`);
+    },
+    onError: (e) => toast.error(`Couldn't resend the invite: ${e.message}`),
+  });
+  const regenerate = trpc.stakeholders.regenerateInvite.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("New invite link generated — fresh 30-day expiry");
+    },
+    onError: (e) => toast.error(`Couldn't regenerate the link: ${e.message}`),
+  });
+  const remove = trpc.stakeholders.remove.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success(`${row.stakeholder.name} removed from the project`);
+    },
+    onError: (e) => toast.error(`Couldn't remove the stakeholder: ${e.message}`),
+  });
 
   const inviteUrl = `${window.location.origin}/s/${row.stakeholder.inviteToken}`;
   const copy = async () => {
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
+    toast.success("Invite link copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -215,14 +259,31 @@ function StakeholderRow({
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           Regenerate
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => remove.mutate({ id: row.stakeholder.id })}
-          disabled={remove.isPending}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button size="sm" variant="ghost" disabled={remove.isPending}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove {row.stakeholder.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This deletes their invite and any session data they've provided —
+                assessment, interview answers, and summaries. It can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep stakeholder</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => remove.mutate({ id: row.stakeholder.id })}
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
@@ -257,17 +318,38 @@ function CompilationTab({ projectId }: { projectId: number }) {
     if (job.status === "done") {
       setCompiling(false);
       invalidate();
+      toast.success("Compilation complete — the compiled dataset is ready");
     } else if (job.status === "failed") {
       setCompiling(false);
       setJobError(job.error ?? "Compilation failed — please try again.");
+      toast.error("Compilation failed — please try again");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compiling, job?.status]);
   const markRead = trpc.compiler.markAlertRead.useMutation({ onSuccess: invalidate });
-  const markAll = trpc.compiler.markAllAlertsRead.useMutation({ onSuccess: invalidate });
+  const markAll = trpc.compiler.markAllAlertsRead.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("All alerts marked read");
+    },
+  });
 
   if (comp.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading compilation…</p>;
+    return (
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton className="h-16 w-full rounded-lg" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-56" /></CardHeader>
+          <CardContent><Skeleton className="h-24 w-full rounded-lg" /></CardContent>
+        </Card>
+      </div>
+    );
   }
   if (!comp.data) {
     return (
@@ -307,11 +389,7 @@ function CompilationTab({ projectId }: { projectId: number }) {
         <CardContent className="flex flex-col gap-2">
           {d.alerts.length === 0 && (
             <div className="flex items-center gap-5 py-2">
-              <img
-                src="/empty-state.png"
-                alt=""
-                className="h-20 w-20 shrink-0 object-contain opacity-90"
-              />
+              <AllClear className="h-20 w-28 shrink-0" title="Calm skyline — all clear" />
               <p className="text-sm text-muted-foreground">
                 No alerts yet. As each stakeholder completes discovery, the Compiler flags
                 contradictions, risks, scope creep, and coverage gaps here.
@@ -378,11 +456,17 @@ function CompilationTab({ projectId }: { projectId: number }) {
           {jobError && <p className="text-sm text-destructive">{jobError}</p>}
           {run.error && <p className="text-sm text-destructive">{run.error.message}</p>}
           {!dataset && (
-            <p className="text-sm text-muted-foreground">
-              {d.completedCount === 0
-                ? "The Compiler runs once at least one stakeholder has completed discovery. It consolidates contradictions, patterns, out-of-scope themes, and coverage gaps into the dataset your deliverables are built from."
-                : "Ready when you are — run the Compiler to consolidate completed sessions. You can re-run it as more stakeholders finish; each run is versioned."}
-            </p>
+            <div className="flex items-center gap-5 py-2">
+              <AwaitingCompilation
+                className="h-24 w-32 shrink-0"
+                title="Scattered pages converging"
+              />
+              <p className="text-sm text-muted-foreground">
+                {d.completedCount === 0
+                  ? "The Compiler runs once at least one stakeholder has completed discovery. It consolidates contradictions, patterns, out-of-scope themes, and coverage gaps into the dataset your deliverables are built from."
+                  : "Ready when you are — run the Compiler to consolidate completed sessions. You can re-run it as more stakeholders finish; each run is versioned."}
+              </p>
+            </div>
           )}
           {dataset && (
             <>
@@ -392,20 +476,31 @@ function CompilationTab({ projectId }: { projectId: number }) {
                   still outstanding. Re-run after they finish for full coverage.
                 </p>
               )}
-              <div className="flex items-center gap-3">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-primary text-lg font-semibold">
-                  {dataset.readiness_score}
+              <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+                <ReadinessGauge score={dataset.readiness_score} />
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    {(
+                      [
+                        ["Contradictions", dataset.contradictions.length],
+                        ["Patterns", dataset.patterns.length],
+                        ["Out-of-scope", dataset.out_of_scope_ranked.length],
+                        ["Coverage gaps", dataset.coverage_gaps.length],
+                      ] as const
+                    ).map(([label, count]) => (
+                      <div key={label} className="rounded-xl border bg-background px-3.5 py-3">
+                        <p className="font-display text-2xl leading-tight">{count}</p>
+                        <p className="text-[11.5px] text-muted-foreground">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="mb-1 text-sm font-medium">Executive summary</p>
+                    <p className="text-sm text-muted-foreground">
+                      {dataset.executive_summary}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">Readiness score</p>
-                  <p className="text-sm text-muted-foreground">
-                    Coverage and coherence of this dataset for deliverable generation.
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-sm font-medium">Executive summary</p>
-                <p className="text-sm text-muted-foreground">{dataset.executive_summary}</p>
               </div>
               <Separator />
               <div className="grid gap-5 md:grid-cols-2">
@@ -417,17 +512,43 @@ function CompilationTab({ projectId }: { projectId: number }) {
                     <p className="text-sm text-muted-foreground">None detected.</p>
                   )}
                   {dataset.contradictions.map((c, i) => (
-                    <div key={i} className="rounded-lg border p-3 text-sm">
-                      <div className="mb-1 flex items-center gap-2">
+                    <div
+                      key={i}
+                      className={`rounded-lg border border-l-[3px] p-3 text-sm ${
+                        c.severity === "high"
+                          ? "border-l-destructive"
+                          : c.severity === "medium"
+                            ? "border-l-gold"
+                            : "border-l-border"
+                      }`}
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="font-medium">{c.topic}</p>
                         <SeverityBadge severity={c.severity} />
                       </div>
-                      {c.positions.map((pos, j) => (
-                        <p key={j} className="text-muted-foreground">
-                          <span className="font-medium text-foreground">{pos.stakeholder}:</span>{" "}
-                          {pos.claim}
-                        </p>
-                      ))}
+                      <div className="flex flex-col gap-2">
+                        {c.positions.map((pos, j) => (
+                          <div key={j} className="rounded-md border bg-card p-2.5">
+                            <div className="mb-1 flex items-center gap-2">
+                              <Monogram
+                                name={pos.stakeholder}
+                                className="h-6 w-6 rounded-md text-[10px]"
+                              />
+                              <span className="text-[12.5px] font-medium">
+                                {pos.stakeholder}
+                              </span>
+                              {j > 0 && (
+                                <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-destructive">
+                                  vs
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[12.5px] text-muted-foreground">
+                              “{pos.claim}”
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -487,11 +608,25 @@ function CompilationTab({ projectId }: { projectId: number }) {
               <Separator />
               <div>
                 <p className="mb-2 text-sm font-medium">Stakeholder coverage</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2.5">
                   {dataset.stakeholder_coverage.map((s, i) => (
-                    <Badge key={i} variant="secondary">
-                      {s.name} · {s.phases_covered}/4 phases
-                    </Badge>
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="flex w-40 flex-none items-center gap-2 truncate text-[12.5px]">
+                        <Monogram name={s.name} className="h-6 w-6 rounded-md text-[10px]" />
+                        <span className="truncate" title={`${s.name} · ${s.role_title}`}>
+                          {s.name}
+                        </span>
+                      </span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="block h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${(s.phases_covered / 4) * 100}%` }}
+                        />
+                      </div>
+                      <span className="w-[74px] flex-none whitespace-nowrap text-right text-[11.5px] text-muted-foreground">
+                        {s.phases_covered}/4 phases
+                      </span>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -499,6 +634,73 @@ function CompilationTab({ projectId }: { projectId: number }) {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Section-level "what changed" between two versions of a deliverable
+ * (Wave 4). Splits markdown on headings and compares section bodies —
+ * cheap, dependency-free, and enough to make the feedback loop legible.
+ */
+function diffSections(prevMd: string, currMd: string) {
+  const parse = (md: string) => {
+    const map = new Map<string, string>();
+    let title = "(intro)";
+    let buf: string[] = [];
+    for (const line of md.split("\n")) {
+      const h = /^#{1,3}\s+(.+)/.exec(line);
+      if (h) {
+        map.set(title, buf.join("\n").trim());
+        title = h[1].trim();
+        buf = [];
+      } else {
+        buf.push(line);
+      }
+    }
+    map.set(title, buf.join("\n").trim());
+    return map;
+  };
+  const prev = parse(prevMd);
+  const curr = parse(currMd);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: string[] = [];
+  for (const [t, body] of curr) {
+    if (!prev.has(t)) added.push(t);
+    else if (prev.get(t) !== body) changed.push(t);
+  }
+  for (const t of prev.keys()) if (!curr.has(t)) removed.push(t);
+  return { added, removed, changed, any: added.length + removed.length + changed.length > 0 };
+}
+
+function VersionDiff({
+  prev,
+  curr,
+}: {
+  prev: { version: number; contentMd: string | null };
+  curr: { version: number; contentMd: string | null };
+}) {
+  const d = diffSections(prev.contentMd ?? "", curr.contentMd ?? "");
+  return (
+    <div className="rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2.5 text-sm">
+      <p className="mb-1 font-medium">
+        What changed: v{prev.version} → v{curr.version}
+      </p>
+      {!d.any && (
+        <p className="text-muted-foreground">No section-level differences detected.</p>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        {d.changed.map((t) => (
+          <Badge key={`c-${t}`} variant="secondary">✎ {t}</Badge>
+        ))}
+        {d.added.map((t) => (
+          <Badge key={`a-${t}`}>+ {t}</Badge>
+        ))}
+        {d.removed.map((t) => (
+          <Badge key={`r-${t}`} variant="outline">− {t}</Badge>
+        ))}
+      </div>
     </div>
   );
 }
@@ -549,9 +751,22 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   });
   // Invalidate on success AND on failure: if the platform cut the response
   // but the server finished generating, a refetch reveals the new version.
-  const generate = trpc.team.generate.useMutation({ onSettled: invalidate });
-  const updateStatus = trpc.team.updateStatus.useMutation({ onSuccess: invalidate });
-  const submitFeedback = trpc.team.submitFeedback.useMutation({ onSuccess: invalidate });
+  const generate = trpc.team.generate.useMutation({
+    onSettled: invalidate,
+    onSuccess: () => toast.success("Draft generated from the compiled dataset"),
+  });
+  const updateStatus = trpc.team.updateStatus.useMutation({
+    onSuccess: (_res, vars) => {
+      invalidate();
+      toast.success(vars.status === "approved" ? "Deliverable approved" : "Moved to review");
+    },
+  });
+  const submitFeedback = trpc.team.submitFeedback.useMutation({
+    onSuccess: () => {
+      invalidate();
+      toast.success("New version generated with your feedback");
+    },
+  });
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({});
 
   const [downloading, setDownloading] = useState<number | null>(null);
@@ -569,13 +784,27 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
       a.download = res.filename;
       a.click();
       URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Couldn't prepare the .docx — please try again");
     } finally {
       setDownloading(null);
     }
   };
 
   if (data.isLoading || billing.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading deliverables…</p>;
+    return (
+      <div className="flex flex-col gap-6">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <CardHeader><Skeleton className="h-5 w-64" /></CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-28 w-full rounded-lg" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
   }
   if (!data.data || !billing.data) {
     return (
@@ -589,6 +818,10 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   const entitled = b.entitlement.sa || b.entitlement.pm;
   const latestFor = (templateId: string) =>
     d.deliverables.find((doc) => doc.templateId === templateId) ?? null;
+  const previousFor = (templateId: string, latestVersion: number) =>
+    d.deliverables.find(
+      (doc) => doc.templateId === templateId && doc.version < latestVersion,
+    ) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -755,11 +988,17 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
             <CardContent className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{tpl.description}</p>
               {!unlocked && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Lock className="h-4 w-4" />
-                  Locked — purchase the {tpl.profile} profile (or the bundle) to unlock
-                  generation.
-                </p>
+                <div className="flex items-center gap-4">
+                  <SealedDeliverable
+                    className="h-16 w-[88px] shrink-0"
+                    title="Sealed blueprint"
+                  />
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Lock className="h-4 w-4" />
+                    Locked — purchase the {tpl.profile} profile (or the bundle) to unlock
+                    generation.
+                  </p>
+                </div>
               )}
               {unlocked && d.compiledReportVersion === null && (
                 <p className="text-sm text-muted-foreground">
@@ -785,19 +1024,27 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
               )}
               {doc && (
                 <>
-                  <div className="max-h-96 overflow-y-auto rounded-lg border bg-muted/30 p-4">
-                    <pre className="whitespace-pre-wrap font-sans text-sm">
-                      {doc.contentMd}
-                    </pre>
+                  {(() => {
+                    const prev = previousFor(tpl.id, doc.version);
+                    return prev ? <VersionDiff prev={prev} curr={doc} /> : null;
+                  })()}
+                  <div className="max-h-96 overflow-y-auto rounded-lg border bg-card p-5">
+                    <div className="doc-prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {doc.contentMd}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                   {doc.crossRoleNotesMd && (
                     <div className="rounded-lg border border-primary/30 p-4">
                       <p className="mb-1 text-sm font-medium">
                         Cross-referencing layer
                       </p>
-                      <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
-                        {doc.crossRoleNotesMd}
-                      </pre>
+                      <div className="doc-prose">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {doc.crossRoleNotesMd}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   )}
                   <div className="flex flex-col gap-2 rounded-lg border p-4">
@@ -854,11 +1101,20 @@ export default function ProjectDetail() {
   const projectId = Number(id);
   const project = trpc.projects.get.useQuery({ id: projectId });
   const progress = trpc.stakeholders.progress.useQuery({ projectId });
+  const [transcriptFor, setTranscriptFor] = useState<number | null>(null);
 
   if (project.isLoading) {
     return (
       <AuthLayout>
-        <p className="p-6 text-sm text-muted-foreground">Loading project…</p>
+        <div className="flex flex-col gap-6 p-6">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <Skeleton className="h-9 w-96 rounded-lg" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
       </AuthLayout>
     );
   }
@@ -921,15 +1177,20 @@ export default function ProjectDetail() {
               <h2 className="text-lg font-medium">Stakeholders</h2>
               <AddStakeholderForm projectId={projectId} />
               {progress.data?.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No stakeholders yet — add your first one above. Their invite email
-                  goes out automatically.
-                </p>
+                <div className="flex items-center gap-5 rounded-lg border border-dashed p-5">
+                  <EmptyRoster className="h-20 w-28 shrink-0" title="Empty seats at the table" />
+                  <p className="text-sm text-muted-foreground">
+                    No stakeholders yet — add your first one above. Their invite email
+                    goes out automatically.
+                  </p>
+                </div>
               )}
               {progress.data?.map((row) => (
                 <StakeholderRow key={row.stakeholder.id} projectId={projectId} row={row} />
               ))}
             </div>
+
+            <ProjectSettings project={p} />
           </TabsContent>
 
           <TabsContent value="discovery" className="mt-4">
@@ -965,14 +1226,30 @@ export default function ProjectDetail() {
                         {row.stakeholder.roleTitle}
                       </p>
                     </div>
-                    <div className="flex flex-col gap-0.5 text-sm text-muted-foreground md:items-end">
-                      <span>
-                        Last activity:{" "}
-                        {row.stakeholder.lastActivityAt
-                          ? new Date(row.stakeholder.lastActivityAt).toLocaleDateString()
-                          : "—"}
-                      </span>
-                      <span>Nudges sent: {row.stakeholder.nudgeCount}/3</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col gap-0.5 text-sm text-muted-foreground md:items-end">
+                        <span>
+                          Last activity:{" "}
+                          {row.stakeholder.lastActivityAt
+                            ? new Date(row.stakeholder.lastActivityAt).toLocaleDateString()
+                            : "—"}
+                        </span>
+                        <span>Nudges sent: {row.stakeholder.nudgeCount}/3</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!row.session}
+                        title={
+                          row.session
+                            ? "Read this stakeholder's summaries, flags, and full transcript"
+                            : "Nothing to read until they open their invite"
+                        }
+                        onClick={() => setTranscriptFor(row.stakeholder.id)}
+                      >
+                        <BookOpen className="mr-1.5 h-3.5 w-3.5" />
+                        View session
+                      </Button>
                     </div>
                   </div>
                 );
@@ -986,6 +1263,11 @@ export default function ProjectDetail() {
             <DeliverablesTab projectId={projectId} />
           </TabsContent>
         </Tabs>
+
+        <TranscriptSheet
+          stakeholderId={transcriptFor}
+          onClose={() => setTranscriptFor(null)}
+        />
       </div>
     </AuthLayout>
   );

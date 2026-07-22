@@ -2,13 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
 import { useParams } from "react-router";
-import { CheckCircle2, Flag, Send } from "lucide-react";
+import { CheckCircle2, Flag, Mic, MicOff, Send } from "lucide-react";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  DeliverIcon,
+  DesignIcon,
+  InterviewerMark,
+  ListenIcon,
+  PhaseVignette,
+  SessionComplete,
+} from "@/components/illustrations/blueprint";
 
 type StyleKey = "detail_oriented" | "big_picture" | "story_narrative" | "problem_solving";
 type Msg = { id: number; stage: string; phase: number | null; role: string; content: string };
@@ -70,31 +79,72 @@ const FORM_QUESTIONS: { q: string; options: { key: StyleKey; label: string }[] }
 
 // ── Shared pieces ────────────────────────────────────────────────────────────
 
+const STAGE_META = [
+  { name: "Listen", full: "Communication Style", time: "3–5 min", Icon: ListenIcon },
+  { name: "Design", full: "Discovery Interview", time: "45–75 min", Icon: DesignIcon },
+  { name: "Deliver", full: "Review & Confirm", time: "5 min", Icon: DeliverIcon },
+] as const;
+
 function StageHeader({ current, sub }: { current: 1 | 2 | 3; sub?: string }) {
-  const stages = ["Communication Style", "Discovery Interview", "Review & Confirm"];
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium">
-          Stage {current} of 3: {stages[current - 1]}
+          Stage {current} of 3: {STAGE_META[current - 1].full}
           {sub ? <span className="text-muted-foreground"> · {sub}</span> : null}
         </p>
         <div className="flex gap-1.5">
-          {stages.map((s, i) => (
-            <Badge key={s} variant={i < current ? "default" : "secondary"}>
-              {i + 1}
-            </Badge>
+          {STAGE_META.map((s, i) => (
+            <span
+              key={s.name}
+              title={`${s.full} · ${s.time}`}
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border ${
+                i + 1 === current
+                  ? "border-primary/40 bg-primary/10"
+                  : i + 1 < current
+                    ? "border-transparent bg-muted opacity-70"
+                    : "border-transparent bg-muted/50 opacity-50"
+              }`}
+            >
+              {i + 1 < current ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+              ) : (
+                <s.Icon className="h-4.5 w-4.5" />
+              )}
+            </span>
           ))}
         </div>
       </div>
       <div className="flex gap-1">
-        {stages.map((s, i) => (
+        {STAGE_META.map((s, i) => (
           <div
-            key={s}
+            key={s.name}
             className={`h-1.5 flex-1 rounded-full ${i < current ? "bg-primary" : "bg-muted"}`}
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Welcome-screen stage cards: the journey, named in the brand's verbs. */
+function StageCards() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {STAGE_META.map((s, i) => (
+        <div
+          key={s.name}
+          className={`rounded-xl border p-3.5 text-center ${
+            i === 0 ? "border-primary/40 bg-primary/5" : "bg-background"
+          }`}
+        >
+          <s.Icon className="mx-auto mb-2 h-9 w-9" title={s.full} />
+          <p className="text-[13px] font-semibold">{s.name}</p>
+          <p className="text-[11.5px] text-muted-foreground">
+            {s.full} · {s.time}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -106,6 +156,51 @@ function friendlyChatError(message: string | null): string | null {
     return "The response took too long and the connection was cut. Press send again to continue.";
   }
   return message;
+}
+
+/**
+ * Perceived streaming: reveal a fresh agent reply word by word (≤ ~1.8s
+ * total) instead of dropping a wall of text. Click skips to the full reply.
+ */
+function TypeOn({ text }: { text: string }) {
+  const words = text.split(/(\s+)/);
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (shown >= words.length) return;
+    const stepMs = Math.min(28, 1800 / words.length);
+    const t = setTimeout(() => setShown((n) => n + 2), stepMs);
+    return () => clearTimeout(t);
+  }, [shown, words.length]);
+  const done = shown >= words.length;
+  return (
+    <span onClick={() => setShown(words.length)}>
+      {done ? text : words.slice(0, shown).join("")}
+      {!done && <span className="opacity-60">▍</span>}
+    </span>
+  );
+}
+
+/** Rotating waiting copy while the model thinks — dead air reads as work. */
+const WAIT_HINTS = [
+  "Reading your answer…",
+  "Connecting it to what you've said so far…",
+  "Shaping the next question…",
+];
+function WaitingHint() {
+  const [idx, setIdx] = useState(-1);
+  useEffect(() => {
+    const first = setTimeout(() => setIdx(0), 2500);
+    return () => clearTimeout(first);
+  }, []);
+  useEffect(() => {
+    if (idx < 0) return;
+    const t = setTimeout(() => setIdx((i) => (i + 1) % WAIT_HINTS.length), 3200);
+    return () => clearTimeout(t);
+  }, [idx]);
+  if (idx < 0) return null;
+  return (
+    <span className="ml-2 text-xs text-muted-foreground">{WAIT_HINTS[idx]}</span>
+  );
 }
 
 function ChatPanel({
@@ -123,51 +218,130 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Messages present at mount render instantly; only replies that arrive
+  // during this visit get the type-on reveal.
+  const initialIds = useRef<Set<number> | null>(null);
+  if (initialIds.current === null) {
+    initialIds.current = new Set(messages.map((m) => m.id));
+  }
+
+  // Voice input (v2.1): final utterances append to the committed draft;
+  // the interim utterance previews live and stays editable before send.
+  const committedRef = useRef("");
+  const speech = useSpeechRecognition({
+    onFinal: (text) => {
+      committedRef.current = [committedRef.current, text].filter(Boolean).join(" ");
+      setDraft(committedRef.current);
+    },
+    onInterim: (interim) => {
+      setDraft(
+        [committedRef.current, interim].filter(Boolean).join(" "),
+      );
+    },
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, isPending]);
 
+  const [savedCue, setSavedCue] = useState(false);
+  const prevCount = useRef(messages.length);
+  useEffect(() => {
+    // A new agent message after a send = the exchange is persisted server-side.
+    if (messages.length > prevCount.current && !isPending) {
+      setSavedCue(true);
+      const t = setTimeout(() => setSavedCue(false), 2500);
+      prevCount.current = messages.length;
+      return () => clearTimeout(t);
+    }
+    prevCount.current = messages.length;
+  }, [messages.length, isPending]);
+
   const send = () => {
     const text = draft.trim();
     if (!text || isPending) return;
+    if (speech.listening) speech.stop();
+    committedRef.current = "";
     setDraft("");
     onSend(text, (ok) => {
-      if (!ok) setDraft(text); // keep the user's words when a send fails
+      if (!ok) {
+        committedRef.current = text;
+        setDraft(text); // keep the user's words when a send fails
+      }
     });
   };
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex max-h-[55vh] min-h-[240px] flex-col gap-3 overflow-y-auto rounded-lg border p-4">
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              m.role === "agent"
-                ? "self-start bg-muted"
-                : "self-end bg-primary text-primary-foreground"
-            }`}
-          >
-            {m.content}
-          </div>
-        ))}
+      <div
+        aria-live="polite"
+        className="flex max-h-[55vh] min-h-[240px] flex-col gap-3 overflow-y-auto rounded-lg border p-4"
+      >
+        {messages.map((m) =>
+          m.role === "agent" ? (
+            <div key={m.id} className="flex max-w-[85%] items-end gap-2 self-start">
+              <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-primary/10">
+                <InterviewerMark className="h-4 w-4" title="XP Architect interviewer" />
+              </span>
+              <div className="animate-rise-in whitespace-pre-wrap rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 text-sm leading-relaxed">
+                {initialIds.current?.has(m.id) ? m.content : <TypeOn text={m.content} />}
+              </div>
+            </div>
+          ) : (
+            <div
+              key={m.id}
+              className="max-w-[85%] self-end whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground"
+            >
+              {m.content}
+            </div>
+          ),
+        )}
         {isPending && (
-          <div className="max-w-[85%] self-start rounded-2xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-            Typing…
+          <div className="flex max-w-[85%] items-end gap-2 self-start">
+            <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-primary/10">
+              <InterviewerMark className="h-4 w-4" />
+            </span>
+            <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-muted px-4 py-3.5">
+              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+              <WaitingHint />
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {speech.error && <p className="text-xs text-destructive">{speech.error}</p>}
+      {speech.listening && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-destructive" />
+          Recording — your words appear above and stay editable before you send.
+        </p>
+      )}
+      <div className="flex min-h-[20px] items-center justify-between">
+        {error ? <p className="text-sm text-destructive">{error}</p> : <span />}
+        <span
+          aria-live="polite"
+          className={`text-[11.5px] text-muted-foreground transition-opacity duration-300 ${savedCue ? "opacity-100" : "opacity-0"}`}
+        >
+          ✓ Progress saved
+        </span>
+      </div>
 
       <div className="flex items-end gap-2">
         <Textarea
           rows={2}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder ?? "Type your answer…"}
+          onChange={(e) => {
+            committedRef.current = e.target.value;
+            setDraft(e.target.value);
+          }}
+          placeholder={
+            speech.listening
+              ? "Listening — speak naturally…"
+              : (placeholder ?? "Type your answer…")
+          }
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -175,6 +349,17 @@ function ChatPanel({
             }
           }}
         />
+        {speech.supported && (
+          <Button
+            variant={speech.listening ? "default" : "outline"}
+            className={speech.listening ? "animate-pulse" : ""}
+            title={speech.listening ? "Stop dictating" : "Speak your answer instead of typing"}
+            aria-label={speech.listening ? "Stop dictating" : "Dictate your answer"}
+            onClick={() => (speech.listening ? speech.stop() : speech.start())}
+          >
+            {speech.listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+        )}
         <Button onClick={send} disabled={!draft.trim() || isPending}>
           <Send className="h-4 w-4" />
         </Button>
@@ -183,22 +368,70 @@ function ChatPanel({
   );
 }
 
+const PHASE_WIN_LINES: Record<number, { headline: string; line: string }> = {
+  1: { headline: "The foundation is laid.", line: "Great start — the ground picture of how you work is in place." },
+  2: { headline: "The frame is up.", line: "Halfway there — the picture of how your team works is getting sharp." },
+  3: { headline: "The walls are in.", line: "Nearly done — everything you've said has been checked back with you." },
+};
+
+function PhaseWinInterstitial({
+  phase,
+  onContinue,
+}: {
+  phase: 1 | 2 | 3;
+  onContinue: () => void;
+}) {
+  // Auto-advance after a short beat; the button is for the impatient.
+  useEffect(() => {
+    const t = setTimeout(onContinue, 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const win = PHASE_WIN_LINES[phase];
+  return (
+    <Card className="animate-rise-in border-gold/50">
+      <CardContent className="flex flex-col items-center gap-1 p-8 text-center">
+        <PhaseVignette phase={phase} className="h-24 w-32" title={`Phase ${phase} of the building complete`} />
+        <p className="mt-2 text-xs font-bold uppercase tracking-[0.08em] text-primary">
+          Phase {phase} of 4 complete
+        </p>
+        <p className="font-display text-2xl tracking-tight">{win.headline}</p>
+        <p className="max-w-sm text-sm text-muted-foreground">{win.line}</p>
+        <div className="mt-3 flex w-full max-w-[220px] gap-1.5">
+          {[1, 2, 3, 4].map((p) => (
+            <span
+              key={p}
+              className={`h-1.5 flex-1 rounded-full ${p <= phase ? "bg-gold" : "bg-muted"}`}
+            />
+          ))}
+        </div>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={onContinue}>
+          Continue →
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SummaryApprovalCard({
   token,
   phase,
   summary,
+  onApproved,
 }: {
   token: string;
   phase: number;
   summary: string;
+  onApproved?: (completedPhase: number, discoveryComplete: boolean) => void;
 }) {
   const utils = trpc.useUtils();
   const [feedback, setFeedback] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
   const approve = trpc.session.approvePhaseSummary.useMutation({
-    onSuccess: () => {
+    onSuccess: (res: { discoveryComplete?: boolean } | undefined) => {
       setFeedback("");
       setShowFeedback(false);
+      onApproved?.(phase, Boolean(res?.discoveryComplete));
       utils.session.getState.invalidate({ token });
     },
   });
@@ -364,6 +597,25 @@ function DiscoveryView({
   const reply = trpc.session.discoveryReply.useMutation();
   const phase = currentPhase ?? 1;
   const phaseMessages = messages.filter((m) => m.stage === "discovery");
+  // The "small win" moment (§10.1): after a phase summary is approved, hold
+  // the next phase behind a brief celebratory interstitial.
+  const [celebrate, setCelebrate] = useState<1 | 2 | 3 | null>(null);
+
+  if (celebrate) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex gap-1">
+          {[1, 2, 3, 4].map((p) => (
+            <div
+              key={p}
+              className={`h-1 flex-1 rounded-full ${p <= celebrate ? "bg-primary/70" : "bg-muted"}`}
+            />
+          ))}
+        </div>
+        <PhaseWinInterstitial phase={celebrate} onContinue={() => setCelebrate(null)} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -389,6 +641,11 @@ function DiscoveryView({
           token={token}
           phase={pendingSummary.phase}
           summary={pendingSummary.summary}
+          onApproved={(completedPhase, discoveryComplete) => {
+            if (!discoveryComplete && completedPhase <= 3) {
+              setCelebrate(completedPhase as 1 | 2 | 3);
+            }
+          }}
         />
       ) : (
         <ChatPanel
@@ -588,9 +845,12 @@ export default function StakeholderSession() {
               {d.clientName ? `${d.clientName} · ` : ""}Invited by {d.inviterName}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-white/80" title="Powered by XP Architect">
-            <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
-            <span className="text-xs">XP Architect</span>
+          <div className="flex shrink-0 items-center gap-2 pt-0.5 text-white/80">
+            <span className="flex items-center gap-1.5" title="Powered by XP Architect">
+              <img src="/logo.png" alt="XP Architect" className="h-5 w-5 rounded" />
+              <span className="text-xs">XP Architect</span>
+            </span>
+            <ThemeToggle className="text-white/80 hover:bg-white/10" />
           </div>
         </div>
       </div>
@@ -607,7 +867,7 @@ export default function StakeholderSession() {
               It takes about 60–90 minutes total, broken into stages you can
               complete at your own pace. Your progress is saved automatically.
             </p>
-            <StageHeader current={1} />
+            <StageCards />
             {start.error && <p className="text-sm text-destructive">{start.error.message}</p>}
             <div className="flex items-center gap-3">
               <Button
@@ -709,13 +969,14 @@ export default function StakeholderSession() {
         <>
           <StageHeader current={3} />
           {d.state === "DISCOVERY_COMPLETE" ? (
-            <Card>
-              <CardContent className="flex flex-col items-start gap-4 p-6">
+            <Card className="animate-rise-in">
+              <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+                <PhaseVignette phase={4} className="h-24 w-32" title="The building complete" />
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />
-                  <p className="font-medium">Interview complete</p>
+                  <p className="font-display text-xl tracking-tight">The design is complete.</p>
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="max-w-md text-sm text-muted-foreground">
                   All four phases are done, {firstName}. One last step: review
                   everything that was captured and confirm it's right.
                 </p>
@@ -729,12 +990,14 @@ export default function StakeholderSession() {
       )}
 
       {d.state === "COMPLETED" && (
-        <Card>
+        <Card className="animate-rise-in">
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
-            <CheckCircle2 className="h-10 w-10 text-primary" />
-            <p className="text-lg font-medium">Thank you, {firstName}</p>
+            <SessionComplete className="h-32 w-44" title="Finished building at sunrise" />
+            <p className="font-display text-2xl tracking-tight">Thank you, {firstName}</p>
+            <span className="block h-0.5 w-10 rounded-full bg-gold" />
             <p className="max-w-md text-sm text-muted-foreground">
-              Your session is submitted. The project team will combine your input
+              Your session is submitted, and a copy of your approved summaries is
+              on its way to your inbox. The project team will combine your input
               with everyone else's to shape the design and plan. You can close
               this page — and thank you for your time.
             </p>

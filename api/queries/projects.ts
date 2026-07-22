@@ -6,6 +6,7 @@ import {
   stakeholders,
   stakeholderSessions,
   compiledReports,
+  compilerAlerts,
   type Project,
 } from "@db/schema";
 
@@ -63,7 +64,7 @@ export async function computeProjectStage(projectId: number): Promise<ProjectSta
   return reports.length > 0 ? "DELIVERABLES" : "COMPILATION_READY";
 }
 
-/** Per-project rollup for dashboard cards (§10.2). */
+/** Per-project rollup for dashboard cards (§10.2) — incl. alert badge count. */
 export async function projectRollup(projectId: number) {
   const db = getDb();
   const projectStakeholders = await db
@@ -85,10 +86,25 @@ export async function projectRollup(projectId: number) {
     completed = sessions.filter((s) => s.state === "COMPLETED").length;
   }
 
+  // Unread compiler alerts → dashboard card badge (§10.2).
+  const unreadAlerts = await db
+    .select({ id: compilerAlerts.id })
+    .from(compilerAlerts)
+    .where(and(eq(compilerAlerts.projectId, projectId), eq(compilerAlerts.read, false)));
+
+  // Most recent stakeholder touch → "last activity" on the card.
+  let lastActivityAt: Date | null = null;
+  for (const s of projectStakeholders) {
+    const t = s.lastActivityAt ?? s.invitedAt;
+    if (t && (!lastActivityAt || t > lastActivityAt)) lastActivityAt = t;
+  }
+
   const stage = await computeProjectStage(projectId);
   return {
     stakeholderCount: projectStakeholders.length,
     completedCount: completed,
+    unreadAlertCount: unreadAlerts.length,
+    lastActivityAt,
     stage,
   };
 }

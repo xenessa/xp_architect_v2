@@ -72,3 +72,21 @@ export async function runNudgeSweep(projectId: number, origin: string): Promise<
 
   return sent;
 }
+
+/**
+ * Sweep every active project — target of the /api/jobs/nudge-sweep endpoint
+ * so an external scheduler (platform cron, uptime pinger) can run nudges
+ * hourly instead of waiting for a lead to open a dashboard (§6.1).
+ */
+export async function runNudgeSweepAll(origin: string): Promise<{ projects: number; sent: number }> {
+  const db = getDb();
+  const active = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.status, "active"));
+  let sent = 0;
+  for (const p of active) {
+    sent += await runNudgeSweep(p.id, origin);
+  }
+  return { projects: active.length, sent };
+}
