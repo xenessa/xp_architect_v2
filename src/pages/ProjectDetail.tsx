@@ -638,6 +638,73 @@ function CompilationTab({ projectId }: { projectId: number }) {
   );
 }
 
+/**
+ * Section-level "what changed" between two versions of a deliverable
+ * (Wave 4). Splits markdown on headings and compares section bodies —
+ * cheap, dependency-free, and enough to make the feedback loop legible.
+ */
+function diffSections(prevMd: string, currMd: string) {
+  const parse = (md: string) => {
+    const map = new Map<string, string>();
+    let title = "(intro)";
+    let buf: string[] = [];
+    for (const line of md.split("\n")) {
+      const h = /^#{1,3}\s+(.+)/.exec(line);
+      if (h) {
+        map.set(title, buf.join("\n").trim());
+        title = h[1].trim();
+        buf = [];
+      } else {
+        buf.push(line);
+      }
+    }
+    map.set(title, buf.join("\n").trim());
+    return map;
+  };
+  const prev = parse(prevMd);
+  const curr = parse(currMd);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: string[] = [];
+  for (const [t, body] of curr) {
+    if (!prev.has(t)) added.push(t);
+    else if (prev.get(t) !== body) changed.push(t);
+  }
+  for (const t of prev.keys()) if (!curr.has(t)) removed.push(t);
+  return { added, removed, changed, any: added.length + removed.length + changed.length > 0 };
+}
+
+function VersionDiff({
+  prev,
+  curr,
+}: {
+  prev: { version: number; contentMd: string | null };
+  curr: { version: number; contentMd: string | null };
+}) {
+  const d = diffSections(prev.contentMd ?? "", curr.contentMd ?? "");
+  return (
+    <div className="rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2.5 text-sm">
+      <p className="mb-1 font-medium">
+        What changed: v{prev.version} → v{curr.version}
+      </p>
+      {!d.any && (
+        <p className="text-muted-foreground">No section-level differences detected.</p>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        {d.changed.map((t) => (
+          <Badge key={`c-${t}`} variant="secondary">✎ {t}</Badge>
+        ))}
+        {d.added.map((t) => (
+          <Badge key={`a-${t}`}>+ {t}</Badge>
+        ))}
+        {d.removed.map((t) => (
+          <Badge key={`r-${t}`} variant="outline">− {t}</Badge>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const PACKAGE_FEATURES: Record<string, string[]> = {
   SA: ["Solution Design Document", "Built from the compiled dataset", ".docx export, versioned"],
   PM: ["Project Documentation", "Built from the compiled dataset", ".docx export, versioned"],
@@ -751,6 +818,10 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
   const entitled = b.entitlement.sa || b.entitlement.pm;
   const latestFor = (templateId: string) =>
     d.deliverables.find((doc) => doc.templateId === templateId) ?? null;
+  const previousFor = (templateId: string, latestVersion: number) =>
+    d.deliverables.find(
+      (doc) => doc.templateId === templateId && doc.version < latestVersion,
+    ) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -953,6 +1024,10 @@ function DeliverablesTab({ projectId }: { projectId: number }) {
               )}
               {doc && (
                 <>
+                  {(() => {
+                    const prev = previousFor(tpl.id, doc.version);
+                    return prev ? <VersionDiff prev={prev} curr={doc} /> : null;
+                  })()}
                   <div className="max-h-96 overflow-y-auto rounded-lg border bg-card p-5">
                     <div className="doc-prose">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

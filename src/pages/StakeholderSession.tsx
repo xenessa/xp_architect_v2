@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
 import { useParams } from "react-router";
-import { CheckCircle2, Flag, Send } from "lucide-react";
+import { CheckCircle2, Flag, Mic, MicOff, Send } from "lucide-react";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   DeliverIcon,
@@ -157,6 +158,51 @@ function friendlyChatError(message: string | null): string | null {
   return message;
 }
 
+/**
+ * Perceived streaming: reveal a fresh agent reply word by word (≤ ~1.8s
+ * total) instead of dropping a wall of text. Click skips to the full reply.
+ */
+function TypeOn({ text }: { text: string }) {
+  const words = text.split(/(\s+)/);
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (shown >= words.length) return;
+    const stepMs = Math.min(28, 1800 / words.length);
+    const t = setTimeout(() => setShown((n) => n + 2), stepMs);
+    return () => clearTimeout(t);
+  }, [shown, words.length]);
+  const done = shown >= words.length;
+  return (
+    <span onClick={() => setShown(words.length)}>
+      {done ? text : words.slice(0, shown).join("")}
+      {!done && <span className="opacity-60">▍</span>}
+    </span>
+  );
+}
+
+/** Rotating waiting copy while the model thinks — dead air reads as work. */
+const WAIT_HINTS = [
+  "Reading your answer…",
+  "Connecting it to what you've said so far…",
+  "Shaping the next question…",
+];
+function WaitingHint() {
+  const [idx, setIdx] = useState(-1);
+  useEffect(() => {
+    const first = setTimeout(() => setIdx(0), 2500);
+    return () => clearTimeout(first);
+  }, []);
+  useEffect(() => {
+    if (idx < 0) return;
+    const t = setTimeout(() => setIdx((i) => (i + 1) % WAIT_HINTS.length), 3200);
+    return () => clearTimeout(t);
+  }, [idx]);
+  if (idx < 0) return null;
+  return (
+    <span className="ml-2 text-xs text-muted-foreground">{WAIT_HINTS[idx]}</span>
+  );
+}
+
 function ChatPanel({
   messages,
   isPending,
@@ -172,6 +218,27 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Messages present at mount render instantly; only replies that arrive
+  // during this visit get the type-on reveal.
+  const initialIds = useRef<Set<number> | null>(null);
+  if (initialIds.current === null) {
+    initialIds.current = new Set(messages.map((m) => m.id));
+  }
+
+  // Voice input (v2.1): final utterances append to the committed draft;
+  // the interim utterance previews live and stays editable before send.
+  const committedRef = useRef("");
+  const speech = useSpeechRecognition({
+    onFinal: (text) => {
+      committedRef.current = [committedRef.current, text].filter(Boolean).join(" ");
+      setDraft(committedRef.current);
+    },
+    onInterim: (interim) => {
+      setDraft(
+        [committedRef.current, interim].filter(Boolean).join(" "),
+      );
+    },
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -193,9 +260,14 @@ function ChatPanel({
   const send = () => {
     const text = draft.trim();
     if (!text || isPending) return;
+    if (speech.listening) speech.stop();
+    committedRef.current = "";
     setDraft("");
     onSend(text, (ok) => {
-      if (!ok) setDraft(text); // keep the user's words when a send fails
+      if (!ok) {
+        committedRef.current = text;
+        setDraft(text); // keep the user's words when a send fails
+      }
     });
   };
 
@@ -212,7 +284,7 @@ function ChatPanel({
                 <InterviewerMark className="h-4 w-4" title="XP Architect interviewer" />
               </span>
               <div className="animate-rise-in whitespace-pre-wrap rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 text-sm leading-relaxed">
-                {m.content}
+                {initialIds.current?.has(m.id) ? m.content : <TypeOn text={m.content} />}
               </div>
             </div>
           ) : (
@@ -233,12 +305,20 @@ function ChatPanel({
               <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
               <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
               <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+              <WaitingHint />
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
+      {speech.error && <p className="text-xs text-destructive">{speech.error}</p>}
+      {speech.listening && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-destructive" />
+          Recording — your words appear above and stay editable before you send.
+        </p>
+      )}
       <div className="flex min-h-[20px] items-center justify-between">
         {error ? <p className="text-sm text-destructive">{error}</p> : <span />}
         <span
@@ -253,8 +333,15 @@ function ChatPanel({
         <Textarea
           rows={2}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder ?? "Type your answer…"}
+          onChange={(e) => {
+            committedRef.current = e.target.value;
+            setDraft(e.target.value);
+          }}
+          placeholder={
+            speech.listening
+              ? "Listening — speak naturally…"
+              : (placeholder ?? "Type your answer…")
+          }
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -262,6 +349,17 @@ function ChatPanel({
             }
           }}
         />
+        {speech.supported && (
+          <Button
+            variant={speech.listening ? "default" : "outline"}
+            className={speech.listening ? "animate-pulse" : ""}
+            title={speech.listening ? "Stop dictating" : "Speak your answer instead of typing"}
+            aria-label={speech.listening ? "Stop dictating" : "Dictate your answer"}
+            onClick={() => (speech.listening ? speech.stop() : speech.start())}
+          >
+            {speech.listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+        )}
         <Button onClick={send} disabled={!draft.trim() || isPending}>
           <Send className="h-4 w-4" />
         </Button>
@@ -898,7 +996,8 @@ export default function StakeholderSession() {
             <p className="font-display text-2xl tracking-tight">Thank you, {firstName}</p>
             <span className="block h-0.5 w-10 rounded-full bg-gold" />
             <p className="max-w-md text-sm text-muted-foreground">
-              Your session is submitted. The project team will combine your input
+              Your session is submitted, and a copy of your approved summaries is
+              on its way to your inbox. The project team will combine your input
               with everyone else's to shape the design and plan. You can close
               this page — and thank you for your time.
             </p>

@@ -198,3 +198,31 @@ export function alertEmailHtml(params: {
     <p style="color:#888;font-size:12px">You receive alert emails only for high-severity findings. Lower-severity alerts wait for you on the dashboard.</p>
   </div>`;
 }
+
+export function stakeholderSummaryEmailHtml(params: {
+  stakeholderName: string;
+  projectName: string;
+  summaries: { phase: number; summary: string }[];
+}): string {
+  const phaseNames: Record<number, string> = {
+    1: "Open Discovery",
+    2: "Targeted Follow-ups",
+    3: "Validation & Clarification",
+    4: "Future State & Priorities",
+  };
+  const blocks = params.summaries
+    .map(
+      (s) => `
+      <h3 style="margin:18px 0 6px;color:#0b4fbc">Phase ${s.phase} · ${phaseNames[s.phase] ?? ""}</h3>
+      <p style="white-space:pre-wrap;margin:0;color:#333">${s.summary}</p>`,
+    )
+    .join("");
+  return `
+  <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+    <h2 style="color:#0b4fbc">Thank you, ${params.stakeholderName}</h2>
+    <p>Your discovery session for <strong>${params.projectName}</strong> is complete. Here are the summaries you approved — your words, kept for your records.</p>
+    ${blocks}
+    <p style="margin-top:22px"><strong>What happens next:</strong> the project team combines your input with every other stakeholder's, cross-references the full picture, and uses it to shape the solution design and project plan. Anything you flagged during review travels with it.</p>
+    <p style="color:#888;font-size:12px">Sent by XP Architect on behalf of the project team. No account or action needed.</p>
+  </div>`;
+}

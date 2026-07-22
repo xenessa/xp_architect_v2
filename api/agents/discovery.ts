@@ -5,7 +5,7 @@ import { getDb } from "../queries/connection";
 import { llm, gatewayMode, type LlmMessage } from "./llm";
 import { discoverySystemPrompt, summaryRevisionPrompt, PHASES } from "./prompts/discovery";
 import { runIncrementalAlertPass } from "./compiler";
-import { sendEmail, milestoneEmailHtml } from "../mailer";
+import { sendEmail, milestoneEmailHtml, stakeholderSummaryEmailHtml } from "../mailer";
 import {
   conversationMessages,
   stakeholderSessions,
@@ -522,6 +522,33 @@ export async function submitFinal(ctx: Ctx, origin?: string) {
       });
     } catch (err) {
       console.warn("[discovery] milestone email failed:", err);
+    }
+  })();
+
+  // Wave 4: the stakeholder gets their own approved summaries by email —
+  // a record of their words, plus what happens next. Logged as 'milestone'.
+  void (async () => {
+    try {
+      const summaries = await db
+        .select()
+        .from(phaseSummaries)
+        .where(eq(phaseSummaries.sessionId, session.id))
+        .orderBy(asc(phaseSummaries.phase));
+      if (summaries.length === 0) return;
+      await sendEmail({
+        to: stakeholder.email,
+        subject: `Your discovery summaries — ${project.name}`,
+        html: stakeholderSummaryEmailHtml({
+          stakeholderName: stakeholder.name,
+          projectName: project.name,
+          summaries: summaries.map((x) => ({ phase: x.phase, summary: x.summary })),
+        }),
+        type: "milestone",
+        stakeholderId: stakeholder.id,
+        projectId: project.id,
+      });
+    } catch (err) {
+      console.warn("[discovery] stakeholder summary email failed:", err);
     }
   })();
 
